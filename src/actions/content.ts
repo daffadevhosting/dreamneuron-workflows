@@ -18,7 +18,7 @@ const FREE_USER_POST_LIMIT = 15;
 // Helper function to get the current user's UID from the session cookie
 async function getUserId() {
     if (!adminAuth) throw new Error('Firebase Admin not initialized');
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const sessionCookie = cookieStore.get('__session')?.value;
     if (!sessionCookie) {
         throw new Error('Not authenticated');
@@ -127,7 +127,11 @@ export async function publishContent(contentType: string, data: any) {
     if (!settingsResult.success || !settingsResult.data) {
         return { success: false, error: "GitHub settings not found. Please configure them first." };
     }
-    const { githubUser, githubRepo, githubToken, githubBranch } = settingsResult.data;
+    const { githubUser, githubRepo, installationId, githubBranch } = settingsResult.data;
+
+    if (!installationId) {
+        return { success: false, error: "GitHub App not connected. Please connect it in the settings." };
+    }
 
     const markdownContent = `---
 title: "${finalData.title || ''}"
@@ -144,7 +148,7 @@ ${finalData.content || ''}
     await commitFileToRepo({
         owner: githubUser,
         repo: githubRepo,
-        token: githubToken,
+        installationId: installationId,
         path: filePath,
         content: markdownContent,
         isBase64: false,
@@ -169,7 +173,11 @@ export async function uploadImageToRepo(base64Content: string, fileName: string)
         if (!settingsResult.success || !settingsResult.data) {
             return { success: false, error: "GitHub settings not found. Please configure them first." };
         }
-        const { githubUser, githubRepo, githubToken, githubBranch } = settingsResult.data;
+        const { githubUser, githubRepo, installationId, githubBranch } = settingsResult.data;
+
+        if (!installationId) {
+            return { success: false, error: "GitHub App not connected. Please connect it in the settings." };
+        }
         
         // Sanitize file name
         const safeFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '');
@@ -184,7 +192,7 @@ export async function uploadImageToRepo(base64Content: string, fileName: string)
         await commitFileToRepo({
             owner: githubUser,
             repo: githubRepo,
-            token: githubToken,
+            installationId: installationId,
             path: filePath,
             content: base64Content,
             isBase64: true,
@@ -203,7 +211,7 @@ export async function uploadImageToRepo(base64Content: string, fileName: string)
 }
 
 // Save settings to a user's 'settings' document in Firestore
-export async function saveSettings(settings: { githubUser: string, githubRepo: string, githubToken: string, githubBranch: string }) {
+export async function saveSettings(settings: { githubUser: string, githubRepo: string, githubBranch: string }) {
     try {
         if (!adminDb) throw new Error('Firebase Admin not initialized');
         const userId = await getUserId();
@@ -293,7 +301,7 @@ export async function createSessionCookie(idToken: string) {
         if (!adminAuth) throw new Error('Firebase Admin not initialized');
         const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days
         const sessionCookie = await adminAuth.createSessionCookie(idToken, { expiresIn });
-        const cookieStore = cookies();
+        const cookieStore = await cookies();
         cookieStore.set('__session', sessionCookie, {
             maxAge: expiresIn,
             httpOnly: true,
@@ -310,7 +318,7 @@ export async function createSessionCookie(idToken: string) {
 // This action is called to sign out the user
 export async function signOutUser() {
     const sessionCookieName = '__session';
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const sessionCookie = cookieStore.get(sessionCookieName)?.value;
 
     if (sessionCookie) {

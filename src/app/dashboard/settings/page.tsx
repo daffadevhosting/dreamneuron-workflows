@@ -11,8 +11,8 @@ import { Github } from 'lucide-react';
 type GithubSettings = {
     githubUser: string;
     githubRepo: string;
-    githubToken: string;
     githubBranch: string;
+    installationId?: string;
 };
 
 export default function SettingsPage() {
@@ -20,7 +20,6 @@ export default function SettingsPage() {
     const [settings, setSettings] = useState<GithubSettings>({
         githubUser: '',
         githubRepo: '',
-        githubToken: '',
         githubBranch: '',
     });
     const [isLoading, setIsLoading] = useState(true);
@@ -57,6 +56,11 @@ export default function SettingsPage() {
                 variant: 'destructive'
             });
         }
+    };
+
+    const handleConnectToGitHub = () => {
+        const githubAppUrl = `https://github.com/apps/${process.env.NEXT_PUBLIC_GITHUB_APP_NAME}/installations/new`;
+        window.location.href = githubAppUrl;
     };
 
     if (isLoading) {
@@ -113,25 +117,21 @@ export default function SettingsPage() {
                                 Leave blank to use 'main' as the default branch.
                             </p>
                         </div>
-                         <div className="space-y-2">
-                            <Label htmlFor="githubToken">GitHub Token</Label>
-                            <Input 
-                                id="githubToken" 
-                                type="password"
-                                placeholder="e.g., ghp_..."
-                                value={settings.githubToken || ''}
-                                onChange={handleChange}
-                                required
-                            />
-                            <p className="text-sm text-muted-foreground">
-                                Create a Personal Access Token with `repo` scope.
-                            </p>
-                        </div>
                         <Button type="submit">
-                            <Github className="mr-2" />
                             Save GitHub Settings
                         </Button>
                     </form>
+
+                    <div className="mt-6">
+                        {settings.installationId ? (
+                            <p className="text-sm text-green-600">GitHub App Connected</p>
+                        ) : (
+                            <Button onClick={handleConnectToGitHub}>
+                                <Github className="mr-2" />
+                                Connect to GitHub
+                            </Button>
+                        )}
+                    </div>
                 </CardContent>
             </Card>
         </div>

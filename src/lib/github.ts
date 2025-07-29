@@ -1,24 +1,92 @@
-// This service encapsulates the logic for interacting with the GitHub API.
+import * as jwt from 'jsonwebtoken';
 
+// The installation ID for the GitHub App, specific to a user's installation.
+// This will be retrieved from the user's settings in Firestore.
+type AuthParams = {
+    installationId: string;
+};
+
+// Parameters for committing a file, now without the token.
 type CommitFileToRepoParams = {
     owner: string;
     repo: string;
-    token: string;
     path: string;
     content: string;
     commitMessage: string;
     branch?: string;
     isBase64?: boolean;
-};
+} & AuthParams; // Inherit installationId
+
+// Parameters for getting repo branches
+type GetRepoBranchesParams = {
+    owner: string;
+    repo: string;
+} & AuthParams; // Inherit installationId
 
 const GITHUB_API_URL = 'https://api.github.com';
 
-async function githubApiRequest(url: string, token: string, options: RequestInit = {}) {
+// --- GitHub App Authentication ---
+
+/**
+ * Creates a JSON Web Token (JWT) to authenticate as the GitHub App.
+ * This token is short-lived (10 minutes) and is used to request an installation access token.
+ */
+function createAppAuthToken(): string {
+    const privateKey = process.env.GITHUB_PRIVATE_KEY;
+    const appId = process.env.GITHUB_APP_ID;
+
+    if (!privateKey || !appId) {
+        throw new Error('GitHub App credentials (private key or App ID) are not configured in environment variables.');
+    }
+
+    const payload = {
+        iat: Math.floor(Date.now() / 1000) - 60,      // Issued at time (60 seconds in the past)
+        exp: Math.floor(Date.now() / 1000) + (10 * 60), // Expiration time (10 minutes from now)
+        iss: appId                                      // Issuer (the App ID)
+    };
+
+    return jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+}
+
+/**
+ * Fetches a temporary installation access token for a specific user's installation.
+ * This token is used to make API requests on behalf of the user.
+ */
+async function getInstallationAccessToken(installationId: string): Promise<string> {
+    const appToken = createAppAuthToken();
+
+    const response = await fetch(`${GITHUB_API_URL}/app/installations/${installationId}/access_tokens`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${appToken}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+        },
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Failed to get installation access token: ${errorData.message}`);
+    }
+
+    const data = await response.json();
+    return data.token;
+}
+
+// --- GitHub API Requests ---
+
+/**
+ * A generic helper to make authenticated requests to the GitHub API.
+ * It now takes an `installationId` and handles fetching the access token internally.
+ */
+async function githubApiRequest(url: string, installationId: string, options: RequestInit = {}) {
+    const accessToken = await getInstallationAccessToken(installationId);
+
     const response = await fetch(`${GITHUB_API_URL}${url}`, {
         ...options,
         headers: {
             ...options.headers,
-            'Authorization': `token ${token}`,
+            'Authorization': `token ${accessToken}`,
             'Accept': 'application/vnd.github.v3+json',
             'X-GitHub-Api-Version': '2022-11-28',
         },
@@ -46,9 +114,9 @@ async function githubApiRequest(url: string, token: string, options: RequestInit
     return response.json();
 }
 
-async function checkDirExists(owner: string, repo: string, token: string, dirPath: string, branch: string) {
+async function checkDirExists(owner: string, repo: string, installationId: string, dirPath: string, branch: string) {
     try {
-        const data = await githubApiRequest(`/repos/${owner}/${repo}/contents/${dirPath}?ref=${branch}`, token);
+        const data = await githubApiRequest(`/repos/${owner}/${repo}/contents/${dirPath}?ref=${branch}`, installationId);
         return Array.isArray(data);
     } catch (error: any) {
         if (error.status === 404) {
@@ -61,7 +129,7 @@ async function checkDirExists(owner: string, repo: string, token: string, dirPat
 export async function commitFileToRepo({
     owner,
     repo,
-    token,
+    installationId,
     path,
     content,
     commitMessage,
@@ -71,7 +139,7 @@ export async function commitFileToRepo({
     try {
         // Safety check for markdown posts
         if (path.startsWith('_posts/')) {
-            const dirExists = await checkDirExists(owner, repo, token, '_posts', branch);
+            const dirExists = await checkDirExists(owner, repo, installationId, '_posts', branch);
             if (!dirExists) {
                 throw new Error(`Safety check failed: '_posts' directory not found in the '${branch}' branch.`);
             }
@@ -79,7 +147,7 @@ export async function commitFileToRepo({
         
         let existingFileSha: string | undefined;
         try {
-            const fileData = await githubApiRequest(`/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, token);
+            const fileData = await githubApiRequest(`/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, installationId);
             existingFileSha = fileData.sha;
         } catch (error: any) {
             if (error.status !== 404) {
@@ -99,7 +167,7 @@ export async function commitFileToRepo({
             body.sha = existingFileSha;
         }
 
-        await githubApiRequest(`/repos/${owner}/${repo}/contents/${path}`, token, {
+        await githubApiRequest(`/repos/${owner}/${repo}/contents/${path}`, installationId, {
             method: 'PUT',
             body: JSON.stringify(body),
         });
@@ -109,5 +177,15 @@ export async function commitFileToRepo({
     } catch (error) {
         console.error('Failed to commit to GitHub repository:', error);
         throw error;
+    }
+}
+
+export async function getRepoBranches({ owner, repo, installationId }: GetRepoBranchesParams): Promise<string[]> {
+    try {
+        const branchesData = await githubApiRequest(`/repos/${owner}/${repo}/branches`, installationId);
+        return branchesData.map((branch: any) => branch.name);
+    } catch (error) {
+        console.error(`Failed to fetch branches for ${owner}/${repo}:`, error);
+        return [];
     }
 }

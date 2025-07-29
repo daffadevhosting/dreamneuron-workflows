@@ -11,10 +11,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, ArrowRight, Star, Loader2 } from "lucide-react";
-import { upgradeToPro } from "@/actions/content";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
+import { PayPalButtons, PayPalScriptProvider } from "@paypal/react-paypal-js";
 
 type UpgradeModalProps = {
     isOpen: boolean;
@@ -32,36 +32,91 @@ const ProFeatures = [
 export function UpgradeModal({ isOpen, onOpenChange }: UpgradeModalProps) {
   const { toast } = useToast();
   const { refreshUser } = useAuth();
-  const [isUpgrading, setIsUpgrading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handlePayment = async () => {
-    setIsUpgrading(true);
-    // In a real application, you would handle the PayPal payment flow here.
-    // On successful payment confirmation (e.g., via webhook), you would call upgradeToPro.
-    // For this simulation, we'll call it directly.
-    
-    // Simulate API call to PayPal and then our backend
-    await new Promise(resolve => setTimeout(resolve, 1500)); 
+  const paypalClientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
 
-    const result = await upgradeToPro();
+// Ganti fungsi createOrder
+const createOrder = async () => {
+  // Reset error state setiap kali order baru dibuat
+  setError(null); 
+  try {
+    const response = await fetch('/api/paypal/create-order', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', // Tambahkan header ini sebagai praktik terbaik
+      },
+    });
 
-    if (result.success) {
-      await refreshUser(); // Refresh user data on the client
+    const orderData = await response.json();
+
+    if (!response.ok) {
+      // Backend kita mengembalikan { error: 'message' }, jadi kita gunakan orderData.error
+      throw new Error(orderData.error || 'Gagal membuat pesanan PayPal.');
+    }
+
+    // Backend kita mengembalikan { id: '...' }
+    return orderData.id;
+
+  } catch (err: any) {
+    // Log error dan perbarui UI
+    console.error("Create order failed:", err);
+    setError(err.message);
+
+    // Lempar kembali error agar PayPal bisa menanganinya via 'onError'
+    throw err; 
+  }
+};
+
+  // Function to capture the order on the server after user approval
+  const onApprove = async (data: any) => {
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/api/paypal/capture-order', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ orderID: data.orderID }),
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message);
+
+      // On successful payment, refresh user data and show success toast
+      await refreshUser();
       toast({
         title: "Upgrade Successful!",
         description: "Welcome to the Pro plan! All features are now unlocked.",
       });
       onOpenChange(false);
-    } else {
-      toast({
-        title: "Upgrade Failed",
-        description: result.error || "Could not complete the upgrade. Please contact support.",
-        variant: "destructive",
-      });
-    }
 
-    setIsUpgrading(false);
+    } catch (err: any) {
+      setError(err.message);
+      console.error("Capture order failed:", err);
+    } finally {
+      setIsProcessing(false);
+    }
   };
+
+  const onError = (err: any) => {
+    setError("An error occurred with the PayPal payment. Please try again.");
+    console.error("PayPal Error:", err);
+  };
+
+  if (!paypalClientId) {
+    return (
+        <Dialog open={isOpen} onOpenChange={onOpenChange}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Configuration Error</DialogTitle>
+                </DialogHeader>
+                <p className="text-red-500">PayPal Client ID is not configured. Please set NEXT_PUBLIC_PAYPAL_CLIENT_ID in your environment variables.</p>
+            </DialogContent>
+        </Dialog>
+    );
+  }
   
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -86,20 +141,30 @@ export function UpgradeModal({ isOpen, onOpenChange }: UpgradeModalProps) {
             </ul>
         </div>
          <div className="text-center my-4">
-            <p className="text-4xl font-bold">$10<span className="text-lg font-normal text-muted-foreground">/month</span></p>
-            <Badge variant="outline" className="mt-2">Billed Annually</Badge>
+            <p className="text-4xl font-bold">$9.99<span className="text-lg font-normal text-muted-foreground">/one-time</span></p>
+            <Badge variant="outline" className="mt-2">Lifetime Deal</Badge>
         </div>
         <DialogFooter>
-          <Button className="w-full" size="lg" onClick={handlePayment} disabled={isUpgrading}>
-            {isUpgrading ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {isProcessing ? (
+                <div className="w-full flex justify-center items-center flex-col">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                    <p className="mt-2 text-sm text-muted-foreground">Finalizing your payment...</p>
+                </div>
             ) : (
-              <>
-                Upgrade with PayPal
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </>
+                <div className="w-full">
+                    {isOpen && (
+                        <PayPalScriptProvider options={{ clientId: paypalClientId, currency: "USD", intent: "capture" }}>
+                            <PayPalButtons 
+                                style={{ layout: "vertical", label: "pay" }}
+                                createOrder={createOrder}
+                                onApprove={onApprove}
+                                onError={onError}
+                            />
+                        </PayPalScriptProvider>
+                    )}
+                    {error && <p className="text-red-500 text-sm mt-2 text-center">{error}</p>}
+                </div>
             )}
-          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

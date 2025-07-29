@@ -14,7 +14,7 @@ function EditorPageContents({ contentType }: { contentType: string }) {
 }
 
 
-export default function EditorPage({ params }: { params: { contentType: string } }) {
+export default async function EditorPage({ params }: { params: { contentType: string } }) {
   return (
     <Suspense fallback={<div>Loading...</div>}>
       <EditorPageContents contentType={params.contentType} />
