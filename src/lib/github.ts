@@ -32,12 +32,16 @@ const GITHUB_API_URL = 'https://api.github.com';
  * This token is short-lived (10 minutes) and is used to request an installation access token.
  */
 function createAppAuthToken(): string {
-    const privateKey = process.env.GITHUB_PRIVATE_KEY;
+    // 1. Ambil kunci Base64 dan App ID dari environment variables
+    const privateKeyBase64 = process.env.GITHUB_PRIVATE_KEY_BASE64; 
     const appId = process.env.GITHUB_APP_ID;
 
-    if (!privateKey || !appId) {
-        throw new Error('GitHub App credentials (private key or App ID) are not configured in environment variables.');
+    if (!privateKeyBase64 || !appId) {
+        throw new Error('GitHub App credentials (Base64 private key or App ID) are not configured in environment variables.');
     }
+
+    // 2. Decode kunci dari Base64 ke format PEM (utf8) yang bisa dibaca JWT
+    const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
 
     const payload = {
         iat: Math.floor(Date.now() / 1000) - 60,      // Issued at time (60 seconds in the past)
@@ -45,6 +49,7 @@ function createAppAuthToken(): string {
         iss: appId                                      // Issuer (the App ID)
     };
 
+    // 3. Gunakan kunci yang sudah di-decode untuk membuat token
     return jwt.sign(payload, privateKey, { algorithm: 'RS256' });
 }
 
