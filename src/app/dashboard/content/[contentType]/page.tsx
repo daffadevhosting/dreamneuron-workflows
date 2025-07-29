@@ -13,11 +13,11 @@ function EditorPageContents({ contentType }: { contentType: string }) {
   return <Editor schema={schema} contentType={contentType} />;
 }
 
-
 export default async function EditorPage({ params }: { params: { contentType: string } }) {
+  const { contentType } = await params;
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      <EditorPageContents contentType={params.contentType} />
+      <EditorPageContents contentType={contentType} />
     </Suspense>
   );
 }

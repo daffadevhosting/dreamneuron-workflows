@@ -32,15 +32,13 @@ const GITHUB_API_URL = 'https://api.github.com';
  * This token is short-lived (10 minutes) and is used to request an installation access token.
  */
 function createAppAuthToken(): string {
-    // 1. Ambil kunci Base64 dan App ID dari environment variables
-    const privateKeyBase64 = process.env.GITHUB_PRIVATE_KEY_BASE64; 
+    const privateKeyBase64 = process.env.GITHUB_PRIVATE_KEY_BASE64;
     const appId = process.env.GITHUB_APP_ID;
 
     if (!privateKeyBase64 || !appId) {
-        throw new Error('GitHub App credentials (Base64 private key or App ID) are not configured in environment variables.');
+        throw new Error('GitHub App credentials (private key or App ID) are not configured in environment variables.');
     }
-
-    // 2. Decode kunci dari Base64 ke format PEM (utf8) yang bisa dibaca JWT
+    // Decode Base64 to PEM utf8
     const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
 
     const payload = {
@@ -49,7 +47,6 @@ function createAppAuthToken(): string {
         iss: appId                                      // Issuer (the App ID)
     };
 
-    // 3. Gunakan kunci yang sudah di-decode untuk membuat token
     return jwt.sign(payload, privateKey, { algorithm: 'RS256' });
 }
 
@@ -71,6 +68,7 @@ async function getInstallationAccessToken(installationId: string): Promise<strin
 
     if (!response.ok) {
         const errorData = await response.json();
+        console.error("Failed to get installation access token:", errorData);
         throw new Error(`Failed to get installation access token: ${errorData.message}`);
     }
 
@@ -100,7 +98,8 @@ async function githubApiRequest(url: string, installationId: string, options: Re
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: response.statusText }));
         if (response.status === 404) {
-             const notFoundError = new Error(`Not Found: ${errorData.message} (URL: ${url})`);
+             const notFoundMessage = `Repository not found. Please check your GitHub settings and ensure the app has access to the repo. (URL: ${url})`;
+             const notFoundError = new Error(notFoundMessage);
              (notFoundError as any).status = 404;
              throw notFoundError;
         }
@@ -109,10 +108,10 @@ async function githubApiRequest(url: string, installationId: string, options: Re
              (validationError as any).status = 422;
              throw validationError;
         }
-        throw new Error(`GitHub API Error: ${errorData.message} (URL: ${url})`);
+        throw new Error(`GitHub API Error: ${errorData.message} (Status: ${response.status}, URL: ${url})`);
     }
 
-    if (response.status === 204) {
+    if (response.status === 204 || response.headers.get('Content-Length') === '0') {
         return null;
     }
 
@@ -125,7 +124,14 @@ async function checkDirExists(owner: string, repo: string, installationId: strin
         return Array.isArray(data);
     } catch (error: any) {
         if (error.status === 404) {
-            return false;
+            // This could be because the repo is not found OR the directory is not found.
+            // The error from githubApiRequest is more specific, so we let it bubble up if it's a repo-level 404.
+            // If it's a directory-level 404, we return false.
+            // A simple way to check is to see if the error message includes "Repository not found"
+            if (error.message.includes('Repository not found')) {
+                throw error; // Re-throw the more specific error
+            }
+            return false; // Directory not found, which is fine, we just won't throw the safety check error.
         }
         throw error;
     }
@@ -146,14 +152,15 @@ export async function commitFileToRepo({
         if (path.startsWith('_posts/')) {
             const dirExists = await checkDirExists(owner, repo, installationId, '_posts', branch);
             if (!dirExists) {
-                throw new Error(`Safety check failed: '_posts' directory not found in the '${branch}' branch.`);
+                // The checkDirExists function will now throw a more specific error if the repo itself is not found
+                throw new Error(`Safety check failed: The '_posts' directory was not found in the '${branch}' branch. Please create it in your repository.`);
             }
         }
         
         let existingFileSha: string | undefined;
         try {
             const fileData = await githubApiRequest(`/repos/${owner}/${repo}/contents/${path}?ref=${branch}`, installationId);
-            existingFileSha = fileData.sha;
+            if(fileData) existingFileSha = fileData.sha;
         } catch (error: any) {
             if (error.status !== 404) {
                 throw error;
@@ -181,7 +188,7 @@ export async function commitFileToRepo({
 
     } catch (error) {
         console.error('Failed to commit to GitHub repository:', error);
-        throw error;
+        throw error; // Re-throw to be caught by the calling server action
     }
 }
 
