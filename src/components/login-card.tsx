@@ -15,7 +15,7 @@ const GoogleIcon = (props: React.SVGProps<SVGSVGElement>) => (
 );
 
 export function LoginCard() {
-  const { user, loginWithGoogle, loading } = useAuth();
+  const { user, loginWithGoogle, loginWithGitHub, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -46,8 +46,13 @@ export function LoginCard() {
             {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <GoogleIcon className="mr-2 h-5 w-5" />}
             Sign in with Google
           </Button>
-          <Button variant="outline" className="w-full text-base py-6 bg-slate-900 text-white hover:bg-slate-500">
-            <Github className="mr-2 h-5 w-5" />
+          <Button 
+            variant="outline" 
+            className="w-full text-base py-6 bg-slate-900 text-white hover:bg-slate-500"
+            onClick={loginWithGitHub}
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Github className="mr-2 h-5 w-5" />}
             Sign in with GitHub
           </Button>
         </div>

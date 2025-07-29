@@ -5,6 +5,7 @@ import { auth, db } from '@/lib/firebase';
 import {
   onAuthStateChanged,
   GoogleAuthProvider,
+  GithubAuthProvider,
   signInWithPopup,
   signOut as firebaseSignOut,
   User,
@@ -20,6 +21,7 @@ interface AuthContextType {
   user: CustomUser | null;
   loading: boolean;
   loginWithGoogle: () => Promise<void>;
+  loginWithGitHub: () => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -131,6 +133,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const loginWithGitHub = async () => {
+    setLoading(true);
+    try {
+        const provider = new GithubAuthProvider();
+        const result = await signInWithPopup(auth, provider);
+
+        if (result.user) {
+            await createOrUpdateUserProfile(result.user);
+            const idToken = await result.user.getIdToken();
+            await createSessionCookie(idToken);
+            router.push('/dashboard');
+        }
+    } catch (error) {
+        console.error("Error during GitHub sign-in:", error);
+    } finally {
+        setLoading(false);
+    }
+  };
+
   const logout = async () => {
     setLoading(true);
     try {
@@ -148,6 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user,
     loading,
     loginWithGoogle,
+    loginWithGitHub,
     logout,
     refreshUser,
   };

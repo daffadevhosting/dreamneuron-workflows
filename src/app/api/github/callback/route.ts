@@ -6,7 +6,7 @@ import { cookies } from 'next/headers';
 // Helper function to get the current user's UID from the session cookie
 async function getUserId() {
     if (!adminAuth) throw new Error('Firebase Admin not initialized');
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const sessionCookie = cookieStore.get('__session')?.value;
     if (!sessionCookie) {
         throw new Error('Not authenticated. Please log in.');
