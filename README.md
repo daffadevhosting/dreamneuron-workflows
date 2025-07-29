@@ -25,7 +25,7 @@ dreamNeuron is a modern, schema-driven content management system that combines t
 ## 🚀 Getting Started
 
 1.  **Login**: Sign in quickly and securely using your Google account.
-2.  **Configure**: Go to the **Settings** page and connect your GitHub account by providing your username, repository name, and a personal access token with `repo` scope.
+2.  **Configure**: Go to the **Settings** page and connect DreamNeuron App to your GitHub account, then provide your branch, username, repository name.
 3.  **Create**: Navigate to the **Content** section to create a new post using the schema-defined editor.
 4.  **Enhance (Pro)**: Use the "Generate Content" and "Generate with AI" buttons to leverage AI for text and image creation.
 5.  **Publish**: Save your work as a draft or publish it directly to your GitHub repository with a single click.

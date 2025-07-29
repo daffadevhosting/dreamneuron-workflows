@@ -43,14 +43,14 @@ export default function LandingPage() {
         <section className="py-20 md:py-32">
           <div className="container mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h1 className="text-4xl md:text-6xl font-extrabold font-headline tracking-tight text-foreground">
-              The Headless CMS <br /> That Works For <span className="text-primary">You</span>.
+              The <span className="text-red-500 from-purple-500 to-pink-500 drop-shadow-lg">Headless</span> CMS <br /> That Works For <span className="text-primary">You</span>.
             </h1>
             <p className="mt-6 max-w-2xl mx-auto text-lg text-muted-foreground">
               DreamNeuron is a schema-driven content management system that combines structured content with the power of AI, publishing directly to your GitHub repository.
             </p>
             <div className="mt-10">
               <Link href="/login" passHref>
-                <Button size="lg">
+                <Button size="lg" className="bg-red-500 text-white hover:bg-red-400">
                   Start Creating for Free
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>

@@ -82,6 +82,17 @@ export default function SettingsPage() {
                     <CardDescription>
                         Set the destination repository for your published content. This will be used to create commits on your behalf.
                     </CardDescription>
+
+                    <div className='float-right'>
+                        {settings.installationId ? (
+                            <p className="text-sm text-green-600">GitHub App Connected</p>
+                        ) : (
+                            <Button onClick={handleConnectToGitHub}>
+                                <Github className="mr-2" />
+                                Connect to GitHub
+                            </Button>
+                        )}
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <form onSubmit={handleSubmit} className="space-y-4">
@@ -117,21 +128,12 @@ export default function SettingsPage() {
                                 Leave blank to use 'main' as the default branch.
                             </p>
                         </div>
+                        <div className="flex items-center justify-between mt-4">
                         <Button type="submit">
                             Save GitHub Settings
                         </Button>
-                    </form>
-
-                    <div className="mt-6">
-                        {settings.installationId ? (
-                            <p className="text-sm text-green-600">GitHub App Connected</p>
-                        ) : (
-                            <Button onClick={handleConnectToGitHub}>
-                                <Github className="mr-2" />
-                                Connect to GitHub
-                            </Button>
-                        )}
                     </div>
+                    </form>
                 </CardContent>
             </Card>
         </div>
