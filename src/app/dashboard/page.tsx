@@ -33,16 +33,16 @@ const ContentCard = ({ item, type, onEdit, onDelete }: { item: ContentData, type
             {type === 'product' && item.price && (
                 <p className="font-semibold text-lg mb-2">${item.price}</p>
             )}
-            <p className="text-sm text-muted-foreground line-clamp-2 h-10">
+            <p className="text-sm text-muted-foreground line-clamp-2">
                 {item.content || item.description}
             </p>
         </CardContent>
         <CardFooter className="flex gap-2">
-            <Button className="w-full" variant="outline" onClick={() => onEdit(item.slug)}>
+            <Button className="flex-1" variant="outline" onClick={() => onEdit(item.slug)}>
                 <Edit className="mr-2 h-4 w-4" />
                 Edit
             </Button>
-            <Button className="w-full" variant="destructive" onClick={() => onDelete(item.slug)}>
+            <Button className="flex-1" variant="destructive" onClick={() => onDelete(item.slug)}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete
             </Button>
@@ -127,7 +127,6 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-            <h1 className="text-3xl font-bold font-headline">Dashboard</h1>
             <p className="text-muted-foreground">
               Create and manage all your content from one place.
             </p>

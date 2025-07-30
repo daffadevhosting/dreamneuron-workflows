@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'; // Impor komponen Select
 import { useToast } from '@/hooks/use-toast';
 import { saveSettings, getSettings } from '@/actions/content';
-import { Github, Loader2 } from 'lucide-react';
+import { Github, Loader2, Trash2 } from 'lucide-react';
 import Image from 'next/image';
 
 type GithubSettings = {
@@ -181,12 +181,6 @@ const handleUninstall = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold font-headline">Settings</h1>
-                <p className="text-muted-foreground">
-                    Configure your integrations and publishing settings.
-                </p>
-            </div>
             <Card>
                 <CardHeader>
                     <CardTitle>GitHub Pages Integration</CardTitle>
@@ -216,7 +210,7 @@ const handleUninstall = () => {
                 Sync / Change
             </Button>
             <Button variant="ghost" size="sm" className="text-red-600 hover:bg-red-50 hover:text-red-600" onClick={handleUninstall}>
-                Uninstall
+                <Trash2 />
             </Button>
         </div>
     </div>

@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
 import { PayPalButtons, PayPalScriptProvider } from "@paypal/react-paypal-js";
+import { motion, AnimatePresence } from 'framer-motion';
 
 type UpgradeModalProps = {
     isOpen: boolean;
@@ -23,7 +24,7 @@ type UpgradeModalProps = {
 
 const ProFeatures = [
     "Unlimited Posts",
-    "AI-Powered Content Generation",
+    "AI-Powered Content Image Generation",
     "AI Image Generation",
     "Publish to GitHub",
     "Priority Support"
@@ -119,54 +120,65 @@ const createOrder = async () => {
   }
   
   return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader className="text-center">
-            <div className="mx-auto w-fit rounded-full bg-yellow-400/20 p-2 mb-2 text-yellow-500">
-                <Star className="h-6 w-6" />
-            </div>
-          <DialogTitle className="text-2xl font-bold font-headline">Upgrade to Pro</DialogTitle>
-          <DialogDescription>
-            Unlock all features and take your content creation to the next level.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="py-4">
-            <ul className="space-y-2">
-                {ProFeatures.map((feature, i) => (
-                    <li key={i} className="flex items-center gap-3">
-                        <CheckCircle className="h-5 w-5 text-green-500" />
-                        <span className="text-muted-foreground">{feature}</span>
-                    </li>
-                ))}
-            </ul>
-        </div>
-         <div className="text-center my-4">
-            <p className="text-4xl font-bold">$9.99<span className="text-lg font-normal text-muted-foreground">/one-time</span></p>
-            <Badge variant="outline" className="mt-2">Lifetime Deal</Badge>
-        </div>
-        <DialogFooter>
-            {isProcessing ? (
-                <div className="w-full flex justify-center items-center flex-col">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                    <p className="mt-2 text-sm text-muted-foreground">Finalizing your payment...</p>
-                </div>
-            ) : (
-                <div className="w-full">
-                    {isOpen && (
-                        <PayPalScriptProvider options={{ clientId: paypalClientId, currency: "USD", intent: "capture", "disable-funding": "card" }}>
-                            <PayPalButtons 
-                                style={{ layout: "vertical", label: "pay" }}
-                                createOrder={createOrder}
-                                onApprove={onApprove}
-                                onError={onError}
-                            />
-                        </PayPalScriptProvider>
-                    )}
-                    {error && <p className="text-red-500 text-sm mt-2 text-center">{error}</p>}
-                </div>
-            )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <AnimatePresence>
+      {isOpen && (
+        <Dialog open={isOpen} onOpenChange={onOpenChange}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.3 }}
+          >
+            <DialogContent className="max-w-md">
+              <DialogHeader className="text-center">
+                  <div className="mx-auto w-fit rounded-full bg-yellow-400/20 p-2 mb-2 text-yellow-500">
+                      <Star className="h-6 w-6" />
+                  </div>
+                <DialogTitle className="text-2xl font-bold font-headline">Upgrade to Pro</DialogTitle>
+                <DialogDescription>
+                  Unlock all features and take your content creation to the next level.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4">
+                  <ul className="space-y-2">
+                      {ProFeatures.map((feature, i) => (
+                          <li key={i} className="flex items-center gap-3">
+                              <CheckCircle className="h-5 w-5 text-green-500" />
+                              <span className="text-muted-foreground">{feature}</span>
+                          </li>
+                      ))}
+                  </ul>
+              </div>
+               <div className="text-center my-4">
+                  <p className="text-4xl font-bold">$9.99<span className="text-lg font-normal text-muted-foreground">/ Month</span></p>
+                  <Badge variant="outline" className="mt-2">Billed Monthly</Badge>
+              </div>
+              <DialogFooter>
+                  {isProcessing ? (
+                      <div className="w-full flex justify-center items-center flex-col">
+                          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                          <p className="mt-2 text-sm text-muted-foreground">Finalizing your payment...</p>
+                      </div>
+                  ) : (
+                      <div className="w-full">
+                          {isOpen && (
+                              <PayPalScriptProvider options={{ clientId: paypalClientId, currency: "USD", intent: "capture", "disable-funding": "card" }}>
+                                  <PayPalButtons 
+                                      style={{ layout: "vertical", label: "pay" }}
+                                      createOrder={createOrder}
+                                      onApprove={onApprove}
+                                      onError={onError}
+                                  />
+                              </PayPalScriptProvider>
+                          )}
+                          {error && <p className="text-red-500 text-sm mt-2 text-center">{error}</p>}
+                      </div>
+                  )}
+              </DialogFooter>
+            </DialogContent>
+          </motion.div>
+        </Dialog>
+      )}
+    </AnimatePresence>
   );
 }

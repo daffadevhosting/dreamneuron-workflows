@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription } from '@/components/ui/card';
 import { UpgradeModal } from '@/components/upgrade-modal';
 import { Badge } from '@/components/ui/badge';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 
 function UpgradeCard() {
@@ -30,12 +31,12 @@ function UpgradeCard() {
     
     return (
         <>
-            <Card className="m-2 bg-primary/10 border-primary/20">
-                <CardContent className="p-3 text-center">
+            <Card className="bg-primary/10 border-primary/20">
+                <CardContent className="p-2 text-center">
                     <CardDescription className="mb-2">
                         You're on the Free Plan. Upgrade to unlock all features.
                     </CardDescription>
-                    <Button size="sm" className="w-full" onClick={() => setModalOpen(true)}>
+                    <Button size="sm" className="w-auto" onClick={() => setModalOpen(true)}>
                         <Zap className="mr-2 h-4 w-4"/>
                         Upgrade to Pro
                     </Button>
@@ -54,6 +55,36 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { user, loading, logout } = useAuth();
   const router = useRouter();
+
+  const getPageTitle = () => {
+    if (pathname.startsWith('/dashboard/content')) {
+      const contentType = pathname.split('/').pop();
+      return contentType ? `Edit ${contentType.charAt(0).toUpperCase() + contentType.slice(1)}` : 'Content';
+    }
+    switch (pathname) {
+      case '/dashboard':
+        return 'Dashboard';
+      case '/dashboard/settings':
+        return 'Settings';
+      default:
+        return 'Dashboard';
+    }
+  };
+
+  const menuVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1,
+      },
+    },
+  };
+
+  const menuItemVariants = {
+    hidden: { opacity: 0, x: -20 },
+    visible: { opacity: 1, x: 0 },
+  };
 
   useEffect(() => {
     if (!loading && !user) {
@@ -81,64 +112,70 @@ export default function DashboardLayout({
             </div>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <Link href="/dashboard" passHref>
-                <SidebarMenuButton isActive={pathname === '/dashboard'}>
-                  <LayoutDashboard />
-                  Dashboard
-                </SidebarMenuButton>
-              </Link>
-            </SidebarMenuItem>
-            
-            <Collapsible asChild>
+          <motion.div initial="hidden" animate="visible" variants={menuVariants}>
+            <SidebarMenu>
+              <motion.div variants={menuItemVariants}>
                 <SidebarMenuItem>
-                    <CollapsibleTrigger asChild>
-                        <SidebarMenuButton isActive={pathname.startsWith('/dashboard/content')}>
-                            <FileText />
-                            Content
-                        </SidebarMenuButton>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent asChild>
-                        <SidebarMenuSub>
-                            <SidebarMenuItem>
-                                {/* PERUBAHAN DI SINI: asChild dipindahkan ke SidebarMenuSubButton */}
-                                <Link href="/dashboard/content/post" passHref>
-                                    <SidebarMenuSubButton isActive={pathname.includes('/post')} asChild>
-                                    <span>
-                                        <BookOpen />
-                                        Blog Posts
-                                    </span>
-                                    </SidebarMenuSubButton>
-                                </Link>
-                            </SidebarMenuItem>
-                            {user?.role === 'pro' && (
-                             <SidebarMenuItem>
-                                {/* PERUBAHAN DI SINI: asChild dipindahkan ke SidebarMenuSubButton */}
-                                <Link href="/dashboard/content/product" passHref>
-                                    <SidebarMenuSubButton isActive={pathname.includes('/product')} asChild>
-                                    <span>
-                                        <ShoppingBag />
-                                        Products
-                                    </span>
-                                    </SidebarMenuSubButton>
-                                </Link>
-                            </SidebarMenuItem>
-                            )}
-                        </SidebarMenuSub>
-                    </CollapsibleContent>
+                  <Link href="/dashboard" passHref>
+                    <SidebarMenuButton isActive={pathname === '/dashboard'}>
+                      <LayoutDashboard />
+                      Dashboard
+                    </SidebarMenuButton>
+                  </Link>
                 </SidebarMenuItem>
-            </Collapsible>
-
-            <SidebarMenuItem>
-              <Link href="/dashboard/settings" passHref>
-                <SidebarMenuButton isActive={pathname === '/dashboard/settings'}>
-                  <Settings />
-                  Settings
-                </SidebarMenuButton>
-              </Link>
-            </SidebarMenuItem>
-          </SidebarMenu>
+              </motion.div>
+              <motion.div variants={menuItemVariants}>
+                <Collapsible asChild>
+                  <SidebarMenuItem>
+                      <CollapsibleTrigger asChild>
+                          <SidebarMenuButton isActive={pathname.startsWith('/dashboard/content')}>
+                              <FileText />
+                              Content
+                          </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent asChild>
+                          <SidebarMenuSub>
+                              <SidebarMenuItem>
+                                  {/* PERUBAHAN DI SINI: asChild dipindahkan ke SidebarMenuSubButton */}
+                                  <Link href="/dashboard/content/post" passHref>
+                                      <SidebarMenuSubButton isActive={pathname.includes('/post')} asChild>
+                                      <span>
+                                          <BookOpen />
+                                          Blog Posts
+                                      </span>
+                                      </SidebarMenuSubButton>
+                                  </Link>
+                              </SidebarMenuItem>
+                              {user?.role === 'pro' && (
+                               <SidebarMenuItem>
+                                  {/* PERUBAHAN DI SINI: asChild dipindahkan ke SidebarMenuSubButton */}
+                                  <Link href="/dashboard/content/product" passHref>
+                                      <SidebarMenuSubButton isActive={pathname.includes('/product')} asChild>
+                                      <span>
+                                          <ShoppingBag />
+                                          Products
+                                      </span>
+                                      </SidebarMenuSubButton>
+                                  </Link>
+                              </SidebarMenuItem>
+                              )}
+                          </SidebarMenuSub>
+                      </CollapsibleContent>
+                  </SidebarMenuItem>
+                </Collapsible>
+              </motion.div>
+              <motion.div variants={menuItemVariants}>
+                <SidebarMenuItem>
+                  <Link href="/dashboard/settings" passHref>
+                    <SidebarMenuButton isActive={pathname === '/dashboard/settings'}>
+                      <Settings />
+                      Settings
+                    </SidebarMenuButton>
+                  </Link>
+                </SidebarMenuItem>
+              </motion.div>
+            </SidebarMenu>
+          </motion.div>
         </SidebarContent>
         
         {user.role === 'freeUser' && <UpgradeCard />}
@@ -164,9 +201,12 @@ export default function DashboardLayout({
             </div>
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset>
+      <SidebarInset className="flex-1 overflow-y-auto">
         <header className="flex items-center justify-between p-4 border-b h-16">
-            <SidebarTrigger />
+            <div className="flex items-center gap-4">
+                <SidebarTrigger />
+                <h1 className="text-xl font-semibold">{getPageTitle()}</h1>
+            </div>
             <Link href="/dashboard/settings" passHref>
               <Button variant="ghost" size="icon">
                 <Settings className="w-5 h-5 text-muted-foreground" />
@@ -174,7 +214,17 @@ export default function DashboardLayout({
             </Link>
         </header>
         <main className="p-4 sm:p-6 lg:p-8">
-            {children}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={pathname}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </SidebarInset>
     </SidebarProvider>
