@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/firebase-admin';
 import * as crypto from 'crypto';
+import { FieldValue } from 'firebase-admin/firestore';
 
 /**
  * Verifies the signature of the incoming webhook request.
@@ -46,6 +47,28 @@ export async function POST(request: NextRequest) {
         const payload = JSON.parse(rawBody);
 
         const event = request.headers.get('x-github-event');
+        
+        if (event === 'installation' && payload.action === 'created') {
+            const installationId = payload.installation.id.toString();
+            const account = payload.installation.account;
+            
+            // Simpan info akun ke Firestore
+            // Anda perlu cara untuk mengaitkan ini dengan user Anda,
+            // biasanya melalui 'state' param saat instalasi, atau user yang sedang login.
+            // Untuk saat ini, kita asumsikan Anda akan menemukannya nanti.
+            console.log(`New installation by ${account.login} (ID: ${installationId})`);
+
+            // Contoh: menyimpan ke koleksi terpisah untuk sementara
+            if (!adminDb) {
+                throw new Error('Firebase Admin not initialized');
+            }
+            await adminDb.collection('installations').doc(installationId).set({
+                githubUsername: account.login,
+                githubAvatarUrl: account.avatar_url,
+                githubAccountId: account.id,
+                createdAt: FieldValue.serverTimestamp()
+            });
+        }
 
         // We are interested in the 'installation' event, specifically when it's deleted.
         if (event === 'installation' && payload.action === 'deleted') {
@@ -65,7 +88,6 @@ export async function POST(request: NextRequest) {
 
             // Use a batch to delete the field from all found documents (should typically be one)
             const batch = adminDb.batch();
-            const { FieldValue } = await import('firebase-admin/firestore');
 
             querySnapshot.forEach(doc => {
                 console.log(`Removing installationId from user settings at: ${doc.ref.path}`);

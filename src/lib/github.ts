@@ -26,7 +26,9 @@ type GetRepoBranchesParams = {
 const GITHUB_API_URL = 'https://api.github.com';
 
 // --- GitHub App Authentication ---
-
+// --- Bagian Baru: Cache untuk Installation Token ---
+// Map untuk menyimpan token: <installationId, { token, expiresAt }>
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 /**
  * Creates a JSON Web Token (JWT) to authenticate as the GitHub App.
  * This token is short-lived (10 minutes) and is used to request an installation access token.
@@ -36,27 +38,28 @@ function createAppAuthToken(): string {
     const appId = process.env.GITHUB_APP_ID;
 
     if (!privateKeyBase64 || !appId) {
-        throw new Error('GitHub App credentials (private key or App ID) are not configured in environment variables.');
+        throw new Error('GitHub App credentials are not configured.');
     }
-    // Decode Base64 to PEM utf8
     const privateKey = Buffer.from(privateKeyBase64, 'base64').toString('utf8');
-
+    const now = Math.floor(Date.now() / 1000);
     const payload = {
-        iat: Math.floor(Date.now() / 1000) - 60,      // Issued at time (60 seconds in the past)
-        exp: Math.floor(Date.now() / 1000) + (10 * 60), // Expiration time (10 minutes from now)
-        iss: appId                                      // Issuer (the App ID)
+        iat: now - 60,
+        exp: now + (10 * 60),
+        iss: appId
     };
-
     return jwt.sign(payload, privateKey, { algorithm: 'RS256' });
 }
 
-/**
- * Fetches a temporary installation access token for a specific user's installation.
- * This token is used to make API requests on behalf of the user.
- */
-async function getInstallationAccessToken(installationId: string): Promise<string> {
-    const appToken = createAppAuthToken();
+// --- Fungsi getInstallationAccessToken yang sudah di-cache ---
+export async function getInstallationAccessToken(installationId: string): Promise<string> {
+    const cachedEntry = tokenCache.get(installationId);
+    // Jika ada token di cache dan belum kedaluwarsa, gunakan itu
+    if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+        return cachedEntry.token;
+    }
 
+    // Jika tidak, minta token baru
+    const appToken = createAppAuthToken();
     const response = await fetch(`${GITHUB_API_URL}/app/installations/${installationId}/access_tokens`, {
         method: 'POST',
         headers: {
@@ -73,7 +76,12 @@ async function getInstallationAccessToken(installationId: string): Promise<strin
     }
 
     const data = await response.json();
-    return data.token;
+    const token = data.token;
+    // Simpan token baru ke cache dengan masa berlaku (valid selama 1 jam, kita set 59 menit untuk aman)
+    const expiresAt = Date.now() + 59 * 60 * 1000;
+    tokenCache.set(installationId, { token, expiresAt });
+
+    return token;
 }
 
 // --- GitHub API Requests ---
@@ -118,21 +126,17 @@ async function githubApiRequest(url: string, installationId: string, options: Re
     return response.json();
 }
 
-async function checkDirExists(owner: string, repo: string, installationId: string, dirPath: string, branch: string) {
+// --- Fungsi checkDirExists yang disederhanakan ---
+export async function checkDirExists(owner: string, repo: string, installationId: string, dirPath: string, branch: string) {
     try {
-        const data = await githubApiRequest(`/repos/${owner}/${repo}/contents/${dirPath}?ref=${branch}`, installationId);
-        return Array.isArray(data);
+        await githubApiRequest(`/repos/${owner}/${repo}/contents/${dirPath}?ref=${branch}`, installationId);
+        return true; // Jika tidak ada error, direktori ada
     } catch (error: any) {
+        // Jika errornya 404 (Not Found), berarti direktori tidak ada. Aman.
         if (error.status === 404) {
-            // This could be because the repo is not found OR the directory is not found.
-            // The error from githubApiRequest is more specific, so we let it bubble up if it's a repo-level 404.
-            // If it's a directory-level 404, we return false.
-            // A simple way to check is to see if the error message includes "Repository not found"
-            if (error.message.includes('Repository not found')) {
-                throw error; // Re-throw the more specific error
-            }
-            return false; // Directory not found, which is fine, we just won't throw the safety check error.
+            return false;
         }
+        // Untuk error lain (misal: 403 Forbidden), lempar kembali agar bisa ditangani
         throw error;
     }
 }
@@ -192,12 +196,11 @@ export async function commitFileToRepo({
     }
 }
 
+// --- getRepoBranches yang lebih baik ---
 export async function getRepoBranches({ owner, repo, installationId }: GetRepoBranchesParams): Promise<string[]> {
-    try {
-        const branchesData = await githubApiRequest(`/repos/${owner}/${repo}/branches`, installationId);
-        return branchesData.map((branch: any) => branch.name);
-    } catch (error) {
-        console.error(`Failed to fetch branches for ${owner}/${repo}:`, error);
-        return [];
-    }
+    // Fungsi ini tidak lagi "menelan" error.
+    // Ia akan melempar error jika gagal, sehingga UI bisa menampilkan pesan error yang sesuai.
+    const branchesData = await githubApiRequest(`/repos/${owner}/${repo}/branches`, installationId);
+    if (!branchesData) return []; // Jika tidak ada branch sama sekali
+    return branchesData.map((branch: any) => branch.name);
 }

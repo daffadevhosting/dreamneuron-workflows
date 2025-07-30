@@ -45,7 +45,7 @@ export async function POST() {
                         currency_code: 'USD',
                         value: '9.99', // Example price for Pro User
                     },
-                    description: 'Pro User Upgrade for ASSYA',
+                    description: 'Pro User Upgrade for DreamNeuron',
                 },
             ],
         };

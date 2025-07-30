@@ -20,7 +20,7 @@ const createZodSchema = (schema: ContentSchema) => {
   for (const field of schema.fields) {
     let zodField: z.ZodType<any, any> = z.string();
     if (field.required) {
-      zodField = zodField.min(1, { message: `${field.title} is required.` });
+      zodField = (zodField as z.ZodString).min(1, { message: `${field.title} is required.` });
     } else {
       // Make non-required fields optional and default to an empty string
       zodField = z.string().optional().default('');
@@ -56,8 +56,8 @@ export function Editor({ schema, contentType }: { schema: ContentSchema, content
       const fetchPostData = async () => {
         const result = await getPost(contentType, slug);
         if (result.success && result.data) {
-          Object.keys(result.data).forEach(key => {
-            form.setValue(key as any, result.data[key], { shouldValidate: true });
+          Object.keys(result.data ?? {}).forEach(key => {
+            form.setValue(key as any, result.data?.[key], { shouldValidate: true });
           });
         } else {
           toast({
@@ -75,7 +75,7 @@ export function Editor({ schema, contentType }: { schema: ContentSchema, content
   const watchedData = form.watch();
   
   const handleSaveOrPublish = async (handler: typeof saveContent | typeof publishContent, data: any) => {
-      const result = await handler(contentType, data);
+      const result = await handler(contentType, data) as { success: boolean; error?: any; savedData?: any; slug?: string };
 
       if (result.success) {
           const action = handler === saveContent ? 'Saved' : 'Published';
