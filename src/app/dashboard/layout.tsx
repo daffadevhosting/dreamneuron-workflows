@@ -112,6 +112,7 @@ export default function DashboardLayout({
                                     </SidebarMenuSubButton>
                                 </Link>
                             </SidebarMenuItem>
+                            {user?.role === 'pro' && (
                              <SidebarMenuItem>
                                 {/* PERUBAHAN DI SINI: asChild dipindahkan ke SidebarMenuSubButton */}
                                 <Link href="/dashboard/content/product" passHref>
@@ -123,6 +124,7 @@ export default function DashboardLayout({
                                     </SidebarMenuSubButton>
                                 </Link>
                             </SidebarMenuItem>
+                            )}
                         </SidebarMenuSub>
                     </CollapsibleContent>
                 </SidebarMenuItem>

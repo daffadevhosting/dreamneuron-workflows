@@ -10,6 +10,7 @@ export type ContentSchema = {
   name: string;
   title: string;
   fields: SchemaField[];
+  proTier?: boolean;
 };
 
 export const postSchema: ContentSchema = {
@@ -49,6 +50,7 @@ export const postSchema: ContentSchema = {
 export const productSchema: ContentSchema = {
     name: 'product',
     title: 'Product',
+    proTier: true,
     fields: [
         {
             name: 'title',

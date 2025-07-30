@@ -153,7 +153,7 @@ const createOrder = async () => {
             ) : (
                 <div className="w-full">
                     {isOpen && (
-                        <PayPalScriptProvider options={{ clientId: paypalClientId, currency: "USD", intent: "capture" }}>
+                        <PayPalScriptProvider options={{ clientId: paypalClientId, currency: "USD", intent: "capture", "disable-funding": "card" }}>
                             <PayPalButtons 
                                 style={{ layout: "vertical", label: "pay" }}
                                 createOrder={createOrder}
