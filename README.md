@@ -2,7 +2,7 @@
 
 dreamNeuron is a modern, schema-driven content management system that combines the flexibility of a headless CMS with the power of generative AI. Create, manage, and publish content directly to your own GitHub repository as clean Markdown files.
 
-### [Connect With Github App](https://github.com/apps/dreamneuron)
+### [Connect With Github App](https://github.com/apps/dreamneuron-studio)
 
 ![dreamNeuron Dashboard](/localhost.png)
 
