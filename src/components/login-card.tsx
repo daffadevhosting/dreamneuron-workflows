@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Github, Newspaper } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { Loader2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 
 const GoogleIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -17,12 +17,15 @@ const GoogleIcon = (props: React.SVGProps<SVGSVGElement>) => (
 export function LoginCard() {
   const { user, loginWithGoogle, loginWithGitHub, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
-    if (user) {
+    // This effect handles redirecting the user AWAY from the login page
+    // if they are already authenticated and not currently loading.
+    if (user && !loading && pathname === '/login') {
       router.push('/dashboard');
     }
-  }, [user, router]);
+  }, [user, loading, router, pathname]);
 
   return (
     <Card className="w-full max-w-md shadow-2xl">

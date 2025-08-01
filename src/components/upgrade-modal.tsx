@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 import {
   Dialog,
@@ -6,179 +6,224 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { CheckCircle, ArrowRight, Star, Loader2 } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
-import { useState } from "react";
-import { PayPalButtons, PayPalScriptProvider } from "@paypal/react-paypal-js";
-import { motion, AnimatePresence } from 'framer-motion';
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import { CheckCircle, Star, Loader2 } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/use-auth';
+import { useState, useEffect } from 'react';
+import { PayPalScriptProvider, PayPalButtons, usePayPalScriptReducer } from '@paypal/react-paypal-js';
+import type { OnApproveData, CreateSubscriptionActions } from '@paypal/paypal-js';
 
 type UpgradeModalProps = {
-    isOpen: boolean;
-    onOpenChange: (isOpen: boolean) => void;
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
 };
 
 const ProFeatures = [
-    "Unlimited Posts",
-    "AI-Powered Content Image Generation",
-    "AI Image Generation",
-    "Publish to GitHub",
-    "Priority Support"
+  'Unlimited Posts',
+  'AI-Powered Content Generation',
+  'AI Image Generation',
+  'Publish to GitHub',
+  'Custom Schemas',
 ];
 
 export function UpgradeModal({ isOpen, onOpenChange }: UpgradeModalProps) {
   const { toast } = useToast();
-  const { refreshUser } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [{ isPending, isResolved }, dispatch] = usePayPalScriptReducer();
+  const [scriptProviderKey, setScriptProviderKey] = useState(Date.now());
 
-  const paypalClientId = process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID;
+  const isSandbox = process.env.NEXT_PUBLIC_PAYPAL_SANDBOX_ENABLED === 'true';
+  const PAYPAL_PLAN_ID = isSandbox
+    ? process.env.NEXT_PUBLIC_PAYPAL_SANDBOX_PLAN_ID
+    : process.env.NEXT_PUBLIC_PAYPAL_LIVE_PLAN_ID;
+  const paypalClientId = isSandbox
+    ? process.env.NEXT_PUBLIC_PAYPAL_SANDBOX_CLIENT_ID
+    : process.env.NEXT_PUBLIC_PAYPAL_LIVE_CLIENT_ID;
 
-// Ganti fungsi createOrder
-const createOrder = async () => {
-  // Reset error state setiap kali order baru dibuat
-  setError(null); 
-  try {
-    const response = await fetch('/api/paypal/create-order', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json', // Tambahkan header ini sebagai praktik terbaik
-      },
+  // Fungsi baru untuk menangani penutupan modal
+  const handleOnOpenChange = (open: boolean) => {
+    if (!open) {
+      setScriptProviderKey(Date.now());
+      setError(null); // Juga bersihkan error
+    }
+    onOpenChange(open);
+  };
+
+  if (!paypalClientId || !PAYPAL_PLAN_ID) {
+    return (
+    <Dialog open={isOpen} onOpenChange={handleOnOpenChange}>
+      <DialogContent className="max-w-md">
+        <PayPalScriptProvider
+          // ✅ GUNAKAN KEY DI SINI
+          key={scriptProviderKey} 
+          options={{
+            clientId: paypalClientId || '',
+            intent: 'subscription',
+            vault: true,
+            disableFunding: 'paylater,venmo',
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Configuration Error</DialogTitle>
+          </DialogHeader>
+          <p className="text-red-500 py-4">
+            PayPal Client ID or Plan ID is not configured. Please check your environment variables.
+          </p>
+        </PayPalScriptProvider>
+      </DialogContent>
+    </Dialog>
+    );
+  }
+
+  const createSubscription = (data: Record<string, unknown>, actions: CreateSubscriptionActions) => {
+    if (!user) {
+      const authError = 'You must be logged in to subscribe.';
+      setError(authError);
+      toast({ title: 'Authentication Error', description: authError, variant: 'destructive' });
+      return Promise.reject(new Error(authError));
+    }
+    setError(null);
+    return actions.subscription.create({
+      plan_id: PAYPAL_PLAN_ID,
+      custom_id: user.uid,
+    });
+  };
+
+  const onApprove = async (data: OnApproveData) => {
+    setIsProcessing(true);
+    setError(null);
+    toast({
+      title: 'Payment Approved!',
+      description: 'Your payment was successful. Activating your subscription...',
     });
 
-    const orderData = await response.json();
-
-    if (!response.ok) {
-      // Backend kita mengembalikan { error: 'message' }, jadi kita gunakan orderData.error
-      throw new Error(orderData.error || 'Gagal membuat pesanan PayPal.');
-    }
-
-    // Backend kita mengembalikan { id: '...' }
-    return orderData.id;
-
-  } catch (err: any) {
-    // Log error dan perbarui UI
-    console.error("Create order failed:", err);
-    setError(err.message);
-
-    // Lempar kembali error agar PayPal bisa menanganinya via 'onError'
-    throw err; 
-  }
-};
-
-  // Function to capture the order on the server after user approval
-  const onApprove = async (data: any) => {
-    setIsProcessing(true);
     try {
-      const response = await fetch('/api/paypal/capture-order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ orderID: data.orderID }),
-      });
-
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message);
-
-      // On successful payment, refresh user data and show success toast
       await refreshUser();
       toast({
-        title: "Upgrade Successful!",
-        description: "Welcome to the Pro plan! All features are now unlocked.",
+        title: 'Upgrade Complete!',
+        description: 'Welcome to the Pro plan. Your new features are now unlocked.',
+        duration: 5000,
       });
-      onOpenChange(false);
-
-    } catch (err: any) {
-      setError(err.message);
-      console.error("Capture order failed:", err);
+    } catch (e) {
+      toast({
+        title: 'Sync Error',
+        description: 'Could not immediately sync your new role. Please try refreshing the page.',
+        variant: 'destructive',
+      });
     } finally {
       setIsProcessing(false);
+      onOpenChange(false);
     }
   };
 
   const onError = (err: any) => {
-    setError("An error occurred with the PayPal payment. Please try again.");
-    console.error("PayPal Error:", err);
+    const message = err.message || 'An unknown error occurred with PayPal.';
+    setError(message);
+    toast({
+      title: 'Payment Error',
+      description: message,
+      variant: 'destructive',
+    });
+    setIsProcessing(false);
   };
 
-  if (!paypalClientId) {
-    return (
-        <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Configuration Error</DialogTitle>
-                </DialogHeader>
-                <p className="text-red-500">PayPal Client ID is not configured. Please set NEXT_PUBLIC_PAYPAL_CLIENT_ID in your environment variables.</p>
-            </DialogContent>
-        </Dialog>
-    );
-  }
-  
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <Dialog open={isOpen} onOpenChange={onOpenChange}>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.3 }}
-          >
-            <DialogContent className="max-w-md">
-              <DialogHeader className="text-center">
-                  <div className="mx-auto w-fit rounded-full bg-yellow-400/20 p-2 mb-2 text-yellow-500">
-                      <Star className="h-6 w-6" />
-                  </div>
-                <DialogTitle className="text-2xl font-bold font-headline">Upgrade to Pro</DialogTitle>
-                <DialogDescription>
-                  Unlock all features and take your content creation to the next level.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="py-4">
-                  <ul className="space-y-2">
-                      {ProFeatures.map((feature, i) => (
-                          <li key={i} className="flex items-center gap-3">
-                              <CheckCircle className="h-5 w-5 text-green-500" />
-                              <span className="text-muted-foreground">{feature}</span>
-                          </li>
-                      ))}
-                  </ul>
-              </div>
-               <div className="text-center my-4">
-                  <p className="text-4xl font-bold">$9.99<span className="text-lg font-normal text-muted-foreground">/ Month</span></p>
-                  <Badge variant="outline" className="mt-2">Billed Monthly</Badge>
-              </div>
-              <DialogFooter>
-                  {isProcessing ? (
-                      <div className="w-full flex justify-center items-center flex-col">
-                          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                          <p className="mt-2 text-sm text-muted-foreground">Finalizing your payment...</p>
-                      </div>
-                  ) : (
-                      <div className="w-full">
-                          {isOpen && (
-                              <PayPalScriptProvider options={{ clientId: paypalClientId, currency: "USD", intent: "capture", "disable-funding": "card" }}>
-                                  <PayPalButtons 
-                                      style={{ layout: "vertical", label: "pay" }}
-                                      createOrder={createOrder}
-                                      onApprove={onApprove}
-                                      onError={onError}
-                                  />
-                              </PayPalScriptProvider>
-                          )}
-                          {error && <p className="text-red-500 text-sm mt-2 text-center">{error}</p>}
-                      </div>
-                  )}
-              </DialogFooter>
-            </DialogContent>
-          </motion.div>
-        </Dialog>
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <PayPalScriptProvider
+          options={{
+            clientId: paypalClientId,
+            intent: 'subscription',
+            vault: true,
+            disableFunding: 'paylater,venmo',
+          }}
+          deferLoading={true}
+        >
+          <DialogHeader className="text-center">
+            <div className="mx-auto w-fit rounded-full bg-yellow-400/20 p-2 mb-2 text-yellow-500">
+              <Star className="h-6 w-6" />
+            </div>
+            <DialogTitle className="text-2xl font-bold font-headline">Upgrade to Pro</DialogTitle>
+            <DialogDescription>
+              Unlock all features and take your content creation to the next level.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <ul className="space-y-2">
+              {ProFeatures.map((feature, i) => (
+                <li key={i} className="flex items-center gap-3">
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                  <span className="text-muted-foreground">{feature}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="text-center my-4">
+            <p className="text-4xl font-bold">
+              $9.99<span className="text-lg font-normal text-muted-foreground">/month</span>
+            </p>
+            <Badge variant="outline" className="mt-2">
+              Billed Monthly
+            </Badge>
+          </div>
+          <DialogFooter className="flex-col items-center">
+            {error && <p className="text-red-500 text-sm text-center mb-2">{error}</p>}
+            <div className="min-h-[120px] w-full flex items-center justify-center">
+              {isProcessing ? (
+                <div className="flex flex-col justify-center items-center gap-2 text-center h-full">
+                  <Loader2 className="animate-spin h-8 w-8 text-primary" />
+                  <p className="text-muted-foreground">
+                    Finalizing your upgrade... <br /> Please wait, this window will close automatically.
+                  </p>
+                </div>
+              ) : (
+                <PayPalButtonsWrapper
+                  createSubscription={createSubscription}
+                  onApprove={onApprove}
+                  onError={onError}
+                  disabled={isProcessing || !user || !PAYPAL_PLAN_ID}
+                />
+              )}
+            </div>
+          </DialogFooter>
+        </PayPalScriptProvider>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+interface PayPalButtonsWrapperProps {
+  createSubscription: (data: Record<string, unknown>, actions: CreateSubscriptionActions) => Promise<string>;
+  onApprove: (data: OnApproveData) => Promise<void>;
+  onError: (err: any) => void;
+  disabled: boolean;
+}
+
+function PayPalButtonsWrapper({ createSubscription, onApprove, onError, disabled }: PayPalButtonsWrapperProps) {
+  const [{ isPending, isResolved }] = usePayPalScriptReducer();
+
+  return (
+    <>
+      {isPending || !isResolved ? (
+        <div className="flex flex-col justify-center items-center gap-2 text-center h-full">
+          <Loader2 className="animate-spin h-8 w-8 text-primary" />
+          <p className="text-muted-foreground">Loading PayPal...</p>
+        </div>
+      ) : (
+        <PayPalButtons
+          style={{ layout: 'vertical', shape: 'rect', label: 'subscribe' }}
+          fundingSource="paypal"
+          createSubscription={createSubscription}
+          onApprove={onApprove}
+          onError={onError}
+          disabled={disabled}
+        />
       )}
-    </AnimatePresence>
+    </>
   );
 }

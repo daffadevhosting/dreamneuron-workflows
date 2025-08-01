@@ -1,12 +1,19 @@
-import type {Metadata} from 'next';
-import Script from 'next/script';
+'use client';
+import type { Metadata } from 'next';
 import './globals.css';
-import { Toaster } from "@/components/ui/toaster";
+import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/context/auth-provider';
+import { PayPalScriptProvider } from '@paypal/react-paypal-js';
+import { PageTitleProvider } from '@/context/page-title-provider';
+import type { ReactPayPalScriptOptions } from '@paypal/react-paypal-js';
 
-export const metadata: Metadata = {
-  title: 'DreamNeuron',
-  description: 'A schema-driven content management system.',
+const initialOptions: ReactPayPalScriptOptions = {
+  clientId: process.env.NEXT_PUBLIC_PAYPAL_SANDBOX_CLIENT_ID || 'sb',
+  enableFunding: '',
+  disableFunding: 'paylater,venmo,card',
+  'data-sdk-integration-source': 'integrationbuilder_sc',
+  currency: 'USD',
+  intent: 'capture',
 };
 
 export default function RootLayout({
@@ -19,17 +26,20 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet"
+        />
       </head>
       <body className="font-body antialiased">
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        <PayPalScriptProvider options={initialOptions}>
+          <AuthProvider>
+            <PageTitleProvider>
+              {children}
+            </PageTitleProvider>
+          </AuthProvider>
+        </PayPalScriptProvider>
         <Toaster />
-        <Script 
-          src={`https://www.paypal.com/sdk/js?client-id=${process.env.NEXT_PUBLIC_PAYPAL_CLIENT_ID}&currency=USD`}
-          strategy="lazyOnload"
-        />
       </body>
     </html>
   );

@@ -2,6 +2,12 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Newspaper, LayoutGrid, Wand2, GitBranch, ArrowRight } from 'lucide-react';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'DreamNeuron',
+  description: 'A schema-driven content management system.',
+};
 
 const features = [
   {
@@ -23,7 +29,7 @@ const features = [
 
 export default function LandingPage() {
   return (
-    <div className="flex flex-col min-h-screen bg-secondary">
+    <div className="flex flex-col min-h-screen bg-secondary animate-fade-in">
       <header className="container mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
         <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-primary/20 rounded-lg flex items-center justify-center">
@@ -43,14 +49,14 @@ export default function LandingPage() {
         <section className="py-20 md:py-32">
           <div className="container mx-auto px-4 sm:px-6 lg:px-8 text-center">
             <h1 className="text-4xl md:text-6xl font-extrabold font-headline tracking-tight text-foreground">
-              The <span className="text-red-500 from-purple-500 to-pink-500 drop-shadow-lg">Headless</span> CMS <br /> That Works For <span className="text-primary">You</span>.
+              The <span className="text-primary from-purple-500 to-pink-500 drop-shadow-lg">Headless</span> CMS <br /> That Works For <span className="text-primary">You</span>.
             </h1>
             <p className="mt-6 max-w-2xl mx-auto text-lg text-muted-foreground">
               DreamNeuron is a schema-driven content management system that combines structured content with the power of AI, publishing directly to your GitHub repository.
             </p>
             <div className="mt-10">
               <Link href="/login" passHref>
-                <Button size="lg" className="bg-red-500 text-white hover:bg-red-400">
+                <Button size="lg">
                   Start Creating for Free
                   <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
@@ -69,7 +75,7 @@ export default function LandingPage() {
             </div>
             <div className="grid md:grid-cols-3 gap-8">
               {features.map((feature, index) => (
-                <Card key={index} className="text-center">
+                <Card key={index} className="text-center transition-all duration-300 hover:scale-105 hover:shadow-xl">
                   <CardHeader>
                     <div className="mx-auto w-fit bg-primary/10 p-4 rounded-xl mb-4">
                       {feature.icon}

@@ -1,3 +1,5 @@
+import { getCustomSchemas as fetchCustomSchemas } from '@/actions/content';
+
 export type SchemaField = {
   name: string;
   title: string;
@@ -10,7 +12,7 @@ export type ContentSchema = {
   name: string;
   title: string;
   fields: SchemaField[];
-  proTier?: boolean;
+  proTier?: boolean; // Added to mark schemas as pro-only
 };
 
 export const postSchema: ContentSchema = {
@@ -50,7 +52,7 @@ export const postSchema: ContentSchema = {
 export const productSchema: ContentSchema = {
     name: 'product',
     title: 'Product',
-    proTier: true,
+    proTier: true, // Explicitly mark this as a Pro feature
     fields: [
         {
             name: 'title',
@@ -89,16 +91,27 @@ export const productSchema: ContentSchema = {
     ]
 };
 
-
-const schemas: Record<string, ContentSchema> = {
+// Store built-in schemas in a plain object
+const builtInSchemas: Record<string, ContentSchema> = {
   post: postSchema,
   product: productSchema,
 };
 
-export function getSchema(type: string): ContentSchema | undefined {
-  return schemas[type];
+// A cache for custom schemas to avoid fetching them repeatedly on the client
+let allSchemasCache: ContentSchema[] | null = null;
+
+// Function to get all schemas (built-in + custom)
+export async function getAllSchemas(): Promise<ContentSchema[]> {
+    const customSchemas = await fetchCustomSchemas();
+    const allSchemas = [...Object.values(builtInSchemas), ...customSchemas];
+    allSchemasCache = allSchemas; // Store in cache
+    return allSchemas;
 }
 
-export function getAllSchemas(): ContentSchema[] {
-    return Object.values(schemas);
+// This function now handles both built-in and custom schemas
+// It's async to handle fetching custom schemas when needed
+export async function getSchema(type: string): Promise<ContentSchema | undefined> {
+  // Use the cached "all schemas" if available, otherwise fetch.
+  const schemas = allSchemasCache || await getAllSchemas();
+  return schemas.find(s => s.name === type);
 }

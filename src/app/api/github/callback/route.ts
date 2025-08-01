@@ -13,7 +13,7 @@ async function getUserId() {
     }
     try {
         // We don't check for revocation here, just that the session is valid.
-        const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, false);
+        const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
         return decodedClaims.uid;
     } catch (error) {
         console.error("Error verifying session cookie in callback:", error);

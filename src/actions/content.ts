@@ -1,356 +1,307 @@
 'use server';
 
-import { adminDb, adminAuth } from '@/lib/firebase-admin';
-import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
+import { adminDb } from '@/lib/firebase-admin';
+import { getUserId } from '@/lib/auth-utils';
+import { FieldValue } from 'firebase-admin/firestore';
 import { commitFileToRepo } from '@/lib/github';
+import { revalidatePath } from 'next/cache';
+import type { ContentSchema } from '@/lib/schemas';
+import sharp from 'sharp';
 
-type PostData = {
-  title: string;
-  slug: string;
-  mainImage: string;
-  content: string;
-  createdAt: number;
-};
-
-const FREE_USER_POST_LIMIT = 15;
-
-// Helper function to get the current user's UID from the session cookie
-async function getUserId() {
-    if (!adminAuth) throw new Error('Firebase Admin not initialized');
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get('__session')?.value;
-    if (!sessionCookie) {
-        throw new Error('Not authenticated');
-    }
-    try {
-        // Changed checkRevoked from true to false to prevent issues with session sync timing.
-        const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, false);
-        return decodedClaims.uid;
-    } catch (error) {
-        throw new Error('Session expired or invalid. Please log in again.');
-    }
+// Helper to get the reference to a user document for content
+function getUserContentDoc(userId: string, contentType: string, slug: string) {
+    return adminDb.collection('users').doc(userId).collection('data').doc('content').collection(contentType).doc(slug);
 }
 
-// Get the user-specific collection reference
-function getUserCollection(userId: string, collectionName: string) {
-    if (!adminDb) throw new Error('Firebase Admin not initialized');
-    return adminDb.collection('users').doc(userId).collection(collectionName);
+// Helper to get the reference to a user's settings document
+function getUserSettingsDoc(userId: string) {
+    return adminDb.collection('users').doc(userId).collection('settings').doc('github');
 }
 
-// Get the user-specific document reference
-function getUserDoc(userId: string, collectionName: string, docId: string) {
-    return getUserCollection(userId, collectionName).doc(docId);
-}
-
-// Upload an image if it's a data URI, then return the URL
-async function uploadImageIfNeeded(dataUriOrUrl: string, slug: string): Promise<string> {
-    if (!dataUriOrUrl || !dataUriOrUrl.startsWith('data:image')) {
-        return dataUriOrUrl; // It's already a URL, so no upload needed
-    }
-    
-    const base64Content = dataUriOrUrl.split(',')[1];
-    const mimeType = dataUriOrUrl.match(/data:(.*);/)?.[1] ?? 'image/png';
-    const extension = mimeType.split('/')[1] ?? 'png';
-    const fileName = `${slug}.${extension}`;
-    
-    const result = await uploadImageToRepo(base64Content, fileName);
-    if (!result.success || !result.url) {
-        throw new Error(result.error || 'Image upload failed during save.');
-    }
-    
-    return result.url;
-}
-
-
-// Save content to a user's subcollection in Firestore
-export async function saveContent(contentType: string, data: any) {
-  try {
+// Helper to get user settings data
+async function getUserSettings() {
     const userId = await getUserId();
-    const isNewPost = !data.createdAt; // A simple way to check if it's a new post
+    const settingsRef = getUserSettingsDoc(userId);
+    const settingsDoc = await settingsRef.get();
+    if (!settingsDoc.exists) {
+        throw new Error('GitHub settings not found. Please configure them on the settings page.');
+    }
+    return settingsDoc.data();
+}
 
-    if (isNewPost) {
+/**
+ * Saves content as a draft in Firestore.
+ * Handles both new content creation and updates.
+ * For new content, it checks if the user has reached their post limit.
+ */
+export async function saveContent(contentType: string, data: any) {
+    try {
+        const userId = await getUserId();
         const userRef = adminDb.collection('users').doc(userId);
         const userSnap = await userRef.get();
-        const userData = userSnap.data();
-        const userRole = userData?.role || 'freeUser';
+        const userRole = userSnap.data()?.role;
 
-        if (userRole === 'freeUser') {
-            const postsCollection = getUserCollection(userId, contentType);
-            const postsSnapshot = await postsCollection.count().get();
-            const postCount = postsSnapshot.data().count;
+        const docRef = getUserContentDoc(userId, contentType, data.slug);
+        const docSnap = await docRef.get();
 
-            if (postCount >= FREE_USER_POST_LIMIT) {
-                return { 
-                    success: false, 
-                    error: `Free users are limited to ${FREE_USER_POST_LIMIT} posts. Please upgrade to create more.` 
-                };
+        // Only check post limit for NEW posts, not for updates.
+        if (!docSnap.exists) {
+            // Free users are limited to 3 posts per content type.
+            if (userRole === 'freeUser') {
+                const contentCollection = adminDb.collection('users').doc(userId).collection('data').doc('content').collection(contentType);
+                const contentCount = (await contentCollection.count().get()).data().count;
+
+                if (contentCount >= 3) {
+                    throw new Error(`Free users are limited to 3 items of each content type. You currently have ${contentCount}.`);
+                }
             }
         }
+        
+        await docRef.set({
+            ...data,
+            createdAt: docSnap.exists ? docSnap.data()?.createdAt : FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        revalidatePath('/dashboard');
+        
+        return { success: true, slug: data.slug };
+
+    } catch (error: any) {
+        console.error("Error saving content:", error);
+        return { success: false, error: error.message };
     }
-    
-    // Handle image upload if mainImage is a data URI
-    const finalImageUrl = data.mainImage ? await uploadImageIfNeeded(data.mainImage, data.slug) : '';
-
-    const dataToSave = {
-      ...data,
-      mainImage: finalImageUrl,
-      createdAt: data.createdAt || Date.now(),
-    };
-
-    const docRef = getUserDoc(userId, contentType, data.slug);
-    await docRef.set(dataToSave, { merge: true });
-    
-    console.log(`Saved content for user ${userId} in ${contentType} with slug: ${data.slug}`);
-    
-    revalidatePath('/dashboard');
-    
-    return { success: true, slug: data.slug, savedData: dataToSave };
-  } catch (error: any) {
-    console.error("Error saving document: ", error);
-    return { success: false, error: error.message || "Failed to save to Firestore." };
-  }
 }
 
-// Publish content to GitHub
+
+/**
+ * Publishes content to a GitHub repository.
+ * It first saves the content as a draft, then commits it to GitHub.
+ * It now compresses AI-generated images before committing.
+ */
 export async function publishContent(contentType: string, data: any) {
-  try {
-    // First, ensure the content is saved and the image is uploaded
-    const saveResult = await saveContent(contentType, data);
-    if (!saveResult.success || !saveResult.savedData) {
-        return { success: false, error: saveResult.error || "Could not save content before publishing." };
-    }
+    try {
+        const saveResult = await saveContent(contentType, data);
+        if (!saveResult.success) {
+            return saveResult; 
+        }
 
-    const finalData = saveResult.savedData;
+        const settings = await getUserSettings();
+        if (!settings?.githubUser || !settings?.githubRepo || !settings?.githubBranch || !settings?.installationId) {
+            throw new Error('GitHub repository details are incomplete. Please check your settings.');
+        }
 
-    const settingsResult = await getSettings();
-    if (!settingsResult.success || !settingsResult.data) {
-        return { success: false, error: "GitHub settings not found. Please configure them first." };
-    }
-    const { githubUser, githubRepo, installationId, githubBranch } = settingsResult.data;
+        let finalContent = data.content;
+        let finalMainImage = data.mainImage;
 
-    if (!installationId) {
-        return { success: false, error: "GitHub App not connected. Please connect it in the settings." };
-    }
+        // Check if the mainImage is a data URI, which indicates it's a new upload or AI-generated.
+        if (data.mainImage && data.mainImage.startsWith('data:image')) {
+            // New logic: Compress the image before uploading
+            const base64Data = data.mainImage.split(',')[1];
+            const imageBuffer = Buffer.from(base64Data, 'base64');
+            
+            // Use sharp to compress the image to WebP format with 80% quality.
+            const compressedImageBuffer = await sharp(imageBuffer)
+                .webp({ quality: 80 })
+                .toBuffer();
+            
+            const compressedImageBase64 = compressedImageBuffer.toString('base64');
 
-    const markdownContent = `---
-title: "${finalData.title || ''}"
-slug: "${finalData.slug || ''}"
-mainImage: "${finalData.mainImage || ''}"
+            // The image path will now always be .webp
+            const imagePath = `images/${data.slug}.webp`;
+            
+            await commitFileToRepo({
+                owner: settings.githubUser,
+                repo: settings.githubRepo,
+                installationId: settings.installationId,
+                path: imagePath,
+                content: compressedImageBase64, // Use the compressed image content
+                commitMessage: `feat: add image for ${data.slug}`,
+                branch: settings.githubBranch,
+                isBase64: true
+            });
+            
+            finalMainImage = `/${imagePath}`; // Update the final image path
+        }
+        
+        const filePath = `_posts/${data.slug}.md`;
+        const commitMessage = `feat: publish post "${data.title}"`;
+        const markdownContent = `---
+title: "${data.title}"
+slug: "${data.slug}"
+mainImage: "${finalMainImage || ''}"
 ---
 
-${finalData.content || ''}
-`;
-    const date = new Date().toISOString().split('T')[0];
-    const filePath = `_posts/${date}-${finalData.slug}.md`;
-    const commitMessage = `feat: add new post '${finalData.title}'`;
-
-    await commitFileToRepo({
-        owner: githubUser,
-        repo: githubRepo,
-        installationId: installationId,
-        path: filePath,
-        content: markdownContent,
-        isBase64: false,
-        commitMessage,
-        branch: githubBranch || 'main'
-    });
-
-    return { success: true, savedData: finalData };
-  } catch (error: any) {
-    console.error("Error publishing to GitHub: ", error);
-    if (error.message.includes("'_posts' directory not found")) {
-        return { success: false, error: "The '_posts' directory was not found in the repository. Please check your repository settings or create the directory." };
-    }
-    return { success: false, error: error.message || "Failed to publish to GitHub." };
-  }
-}
-
-// Upload an image to the GitHub repository
-export async function uploadImageToRepo(base64Content: string, fileName: string) {
-    try {
-        const settingsResult = await getSettings();
-        if (!settingsResult.success || !settingsResult.data) {
-            return { success: false, error: "GitHub settings not found. Please configure them first." };
-        }
-        const { githubUser, githubRepo, installationId, githubBranch } = settingsResult.data;
-
-        if (!installationId) {
-            return { success: false, error: "GitHub App not connected. Please connect it in the settings." };
-        }
-        
-        // Sanitize file name
-        const safeFileName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '');
-        const timestamp = Date.now();
-        const uniqueFileName = `${timestamp}-${safeFileName}`;
-        
-        // We assume images are stored in an 'assets/images' folder.
-        // User must create this folder in their repository.
-        const filePath = `assets/images/${uniqueFileName}`;
-        const commitMessage = `feat: add image ${uniqueFileName}`;
+${finalContent}`;
 
         await commitFileToRepo({
-            owner: githubUser,
-            repo: githubRepo,
-            installationId: installationId,
+            owner: settings.githubUser,
+            repo: settings.githubRepo,
+            installationId: settings.installationId,
             path: filePath,
-            content: base64Content,
-            isBase64: true,
-            commitMessage,
-            branch: githubBranch || 'main'
+            content: markdownContent,
+            commitMessage: commitMessage,
+            branch: settings.githubBranch
         });
         
-        // Construct the public URL for the image
-        const imageUrl = `https://raw.githubusercontent.com/${githubUser}/${githubRepo}/${githubBranch || 'main'}/${filePath}`;
-
-        return { success: true, url: imageUrl };
-    } catch (error: any) {
-        console.error("Error uploading image to GitHub: ", error);
-        return { success: false, error: error.message || "Failed to upload image." };
-    }
-}
-
-// Save settings to a user's 'settings' document in Firestore
-export async function saveSettings(settings: { githubUser: string, githubRepo: string, githubBranch: string }) {
-    try {
-        if (!adminDb) throw new Error('Firebase Admin not initialized');
-        const userId = await getUserId();
-        const settingsRef = adminDb.collection('users').doc(userId).collection('settings').doc('github');
-        await settingsRef.set(settings, { merge: true });
-        console.log(`GitHub settings saved to Firestore for user ${userId}.`);
-        return { success: true };
-    } catch (error: any) {
-        console.error("Error saving settings: ", error);
-        return { success: false, error: error.message || "Failed to save settings." };
-    }
-}
-
-// Get settings from a user's 'settings' document in Firestore
-export async function getSettings() {
-    try {
-        if (!adminDb) throw new Error('Firebase Admin not initialized');
-        const userId = await getUserId();
-        const docRef = adminDb.collection('users').doc(userId).collection('settings').doc('github');
-        const docSnap = await docRef.get();
-        if (docSnap.exists) {
-            return { success: true, data: docSnap.data() };
-        } else {
-            console.log(`No settings document for user ${userId}!`);
-            return { success: false, error: "Settings not found." };
+        // If the image path was updated, save the new path back to Firestore.
+        if (finalMainImage !== data.mainImage) {
+            const userId = await getUserId();
+            const docRef = getUserContentDoc(userId, contentType, data.slug);
+            await docRef.update({ mainImage: finalMainImage });
         }
+        
+        revalidatePath('/dashboard');
+        return { success: true, slug: data.slug, savedData: { mainImage: finalMainImage } };
+
     } catch (error: any) {
-        console.error("Error getting settings:", error);
-        return { success: false, error: error.message || "Failed to fetch settings." };
+        console.error("Error publishing content:", error);
+        return { success: false, error: error.message };
     }
 }
 
-// Get all posts from a user's subcollection in Firestore
-export async function getPosts(contentType: string): Promise<PostData[]> {
-  try {
-    const userId = await getUserId();
-    const collectionRef = getUserCollection(userId, contentType);
-    const querySnapshot = await collectionRef.orderBy('createdAt', 'desc').get();
-    const posts = querySnapshot.docs.map(doc => ({ ...doc.data(), slug: doc.id }) as PostData);
-    return posts;
-  } catch (error: any) {
-    console.error("Error fetching posts: ", error.message);
-    if (error.message.includes('Not authenticated') || error.message.includes('Firebase Admin not initialized')) {
+/**
+ * Retrieves a single post/content item by its slug for the current user.
+ */
+export async function getPost(contentType: string, slug: string) {
+    try {
+        const userId = await getUserId();
+        const docRef = getUserContentDoc(userId, contentType, slug);
+        const docSnap = await docRef.get();
+
+        if (!docSnap.exists) {
+            return { success: false, error: 'Post not found.' };
+        }
+        
+        const postData = docSnap.data();
+        if (postData) {
+             if (postData.createdAt) postData.createdAt = postData.createdAt.toMillis();
+             if (postData.updatedAt) postData.updatedAt = postData.updatedAt.toMillis();
+        }
+
+        return { success: true, data: postData };
+    } catch (error: any) {
+        console.error("Error getting post:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Retrieves all posts/content items of a specific type for the current user.
+ */
+export async function getPosts(contentType: string) {
+    try {
+        const userId = await getUserId();
+        const collectionRef = adminDb.collection('users').doc(userId).collection('data').doc('content').collection(contentType);
+        const snapshot = await collectionRef.orderBy('createdAt', 'desc').get();
+        
+        return snapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                ...data,
+                createdAt: data.createdAt?.toMillis(),
+                updatedAt: data.updatedAt?.toMillis(),
+            };
+        });
+
+    } catch (error: any) {
+        console.error(`Error getting posts for ${contentType}:`, error);
         return [];
     }
-    throw error;
-  }
 }
 
-// Get a single post from a user's subcollection in Firestore
-export async function getPost(contentType: string, slug: string) {
-  try {
-    const userId = await getUserId();
-    const docRef = getUserDoc(userId, contentType, slug);
-    const docSnap = await docRef.get();
-    if (docSnap.exists) {
-      return { success: true, data: docSnap.data() };
-    } else {
-      console.log("No such document!");
-      return { success: false, error: "Post not found." };
-    }
-  } catch (error: any)
-    {
-    console.error("Error getting document:", error);
-    return { success: false, error: error.message || "Failed to fetch post." };
-  }
-}
-
-// Delete a post from a user's subcollection in Firestore
+/**
+ * Deletes a post/content item from Firestore for the current user.
+ */
 export async function deletePost(contentType: string, slug: string) {
-  try {
-    const userId = await getUserId();
-    const docRef = getUserDoc(userId, contentType, slug);
-    await docRef.delete();
-    console.log(`Deleted post with slug: ${slug} for user ${userId}`);
-    revalidatePath('/dashboard');
-    return { success: true };
-  } catch (error: any) {
-    console.error("Error deleting document: ", error);
-    return { success: false, error: error.message || "Failed to delete post." };
-  }
-}
-
-// This action is called from the client to set the session cookie
-export async function createSessionCookie(idToken: string) {
     try {
-        if (!adminAuth) throw new Error('Firebase Admin not initialized');
-        const expiresIn = 60 * 60 * 24 * 5 * 1000; // 5 days
-        const sessionCookie = await adminAuth.createSessionCookie(idToken, { expiresIn });
-        const cookieStore = await cookies();
-        cookieStore.set('__session', sessionCookie, {
-            maxAge: expiresIn,
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            path: '/',
-        });
-        return { success: true };
-    } catch (error) {
-        console.error('Failed to create session cookie:', error);
-        return { success: false, error: 'Failed to create session.' };
-    }
-}
-
-// This action is called to sign out the user
-export async function signOutUser() {
-    const sessionCookieName = '__session';
-    const cookieStore = await cookies();
-    const sessionCookie = cookieStore.get(sessionCookieName)?.value;
-
-    if (sessionCookie) {
-        // Delete the cookie immediately to avoid issues with async operations.
-        cookieStore.delete(sessionCookieName);
-        try {
-            if (!adminAuth) throw new Error('Firebase Admin not initialized');
-            // Still verify the cookie to revoke the token
-            const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie);
-            await adminAuth.revokeRefreshTokens(decodedClaims.sub);
-            return { success: true };
-        } catch (error) {
-            console.error('Failed to revoke session on server:', error);
-            // The cookie is already deleted, but we signal a failure in server-side cleanup.
-            return { success: false, error: 'Failed to sign out properly.' };
-        }
-    }
-
-    return { success: true }; // No cookie to begin with
-}
-
-// This action upgrades a user to the 'proUser' role.
-export async function upgradeToPro() {
-    try {
-        if (!adminDb) throw new Error('Firebase Admin not initialized');
         const userId = await getUserId();
-        const userRef = adminDb.collection('users').doc(userId);
-        await userRef.update({ role: 'proUser' });
-        console.log(`User ${userId} upgraded to proUser.`);
+        const docRef = getUserContentDoc(userId, contentType, slug);
+        await docRef.delete();
+        revalidatePath('/dashboard');
         return { success: true };
     } catch (error: any) {
-        console.error("Error upgrading user to Pro:", error);
-        return { success: false, error: error.message || "Failed to upgrade user role." };
+        console.error("Error deleting post:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Retrieves all custom schemas created by the user.
+ */
+export async function getCustomSchemas(): Promise<ContentSchema[]> {
+    try {
+        const userId = await getUserId();
+        const schemasCollection = adminDb.collection('users').doc(userId).collection('data').doc('content').collection('schemas');
+        const snapshot = await schemasCollection.get();
+        
+        if (snapshot.empty) {
+            return [];
+        }
+        
+        return snapshot.docs.map(doc => doc.data() as ContentSchema);
+    } catch (error: any) {
+        console.error("Error getting custom schemas:", error);
+        return [];
+    }
+}
+
+/**
+ * Saves a new custom schema to Firestore for the current user.
+ */
+export async function saveSchema(schemaData: ContentSchema) {
+    try {
+        const userId = await getUserId();
+        
+        if (['post', 'product'].includes(schemaData.name)) {
+            throw new Error(`Schema name "${schemaData.name}" is reserved. Please choose another name.`);
+        }
+        
+        const docRef = adminDb.collection('users').doc(userId).collection('data').doc('content').collection('schemas').doc(schemaData.name);
+        
+        await docRef.set(schemaData, { merge: true });
+        
+        revalidatePath('/dashboard/schemas');
+        revalidatePath('/dashboard');
+        
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error saving schema:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Saves GitHub settings to the current user's subcollection.
+ */
+export async function saveSettings(settings: any) {
+    try {
+        const userId = await getUserId();
+        const settingsRef = getUserSettingsDoc(userId);
+        await settingsRef.set(settings, { merge: true });
+        return { success: true };
+    } catch (error: any) {
+        console.error("Error saving settings:", error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Retrieves GitHub settings for the current user.
+ */
+export async function getSettings() {
+    try {
+        const userId = await getUserId();
+        const settingsRef = getUserSettingsDoc(userId);
+        const docSnap = await settingsRef.get();
+        if (!docSnap.exists) {
+            // Return success with null data if no settings are found.
+            // This is not an error, just an empty state.
+            return { success: true, data: null };
+        }
+        return { success: true, data: docSnap.data() };
+    } catch (error: any) {
+        console.error("Error getting settings:", error);
+        return { success: false, error: error.message };
     }
 }

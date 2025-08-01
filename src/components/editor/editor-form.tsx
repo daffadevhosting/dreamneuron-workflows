@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ImageUpload } from './image-upload';
+import { AIDescriptionButton } from './ai-description-button';
 
-const FieldComponent = ({ field }: { field: SchemaField }) => {
+const FieldComponent = ({ field, schemaName }: { field: SchemaField, schemaName: string }) => {
   const { control, setValue, watch } = useFormContext();
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,7 +38,12 @@ const FieldComponent = ({ field }: { field: SchemaField }) => {
       name={field.name}
       render={({ field: formField }) => (
         <FormItem>
-          <FormLabel>{field.title}</FormLabel>
+          <div className="flex justify-between items-center">
+             <FormLabel>{field.title}</FormLabel>
+             {schemaName === 'product' && field.name === 'description' && (
+                <AIDescriptionButton />
+             )}
+          </div>
           <FormControl>
             <div>
               {field.name === 'title' && <Input {...formField} onChange={handleTitleChange} />}
@@ -65,7 +71,7 @@ export function EditorForm({ schema }: { schema: ContentSchema }) {
       </CardHeader>
       <CardContent className="space-y-6">
         {schema.fields.map((field) => (
-          <FieldComponent key={field.name} field={field} />
+          <FieldComponent key={field.name} field={field} schemaName={schema.name} />
         ))}
       </CardContent>
     </Card>

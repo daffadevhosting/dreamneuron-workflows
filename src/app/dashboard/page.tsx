@@ -2,14 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { PlusCircle, Edit, Trash2, ChevronDown, Newspaper, ShoppingBag } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { PlusCircle, Edit, Trash2, ChevronDown, Newspaper, ShoppingBag, FilePlus, BookOpen } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getPosts, deletePost } from '@/actions/content';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ContentCard } from '@/components/dashboard/content-card';
+import { getAllSchemas, ContentSchema } from '@/lib/schemas';
+import { useAuth } from '@/hooks/use-auth';
+import { usePageTitle } from '@/context/page-title-provider';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 type ContentData = {
   title: string;
@@ -21,52 +26,24 @@ type ContentData = {
   price?: number;
 };
 
-const ContentCard = ({ item, type, onEdit, onDelete }: { item: ContentData, type: string, onEdit: (slug: string) => void, onDelete: (slug: string) => void }) => (
-    <Card>
-        <CardHeader>
-            <CardTitle className="truncate">{item.title || 'Untitled'}</CardTitle>
-            <CardDescription>
-                /{item.slug}
-            </CardDescription>
-        </CardHeader>
-        <CardContent>
-            {type === 'product' && item.price && (
-                <p className="font-semibold text-lg mb-2">${item.price}</p>
-            )}
-            <p className="text-sm text-muted-foreground line-clamp-2">
-                {item.content || item.description}
-            </p>
-        </CardContent>
-        <CardFooter className="flex gap-2">
-            <Button className="flex-1" variant="outline" onClick={() => onEdit(item.slug)}>
-                <Edit className="mr-2 h-4 w-4" />
-                Edit
-            </Button>
-            <Button className="flex-1" variant="destructive" onClick={() => onDelete(item.slug)}>
-                <Trash2 className="mr-2 h-4 w-4" />
-                Delete
-            </Button>
-        </CardFooter>
-    </Card>
-);
+type AllContent = {
+    [key: string]: ContentData[];
+}
 
-const EmptyState = ({ type }: { type: string }) => {
-    const singular = type.slice(0, -1);
-    const plural = type;
-    const ctaText = `New ${singular.charAt(0).toUpperCase() + singular.slice(1)}`;
-    const href = `/dashboard/content/${singular}`;
-
+const EmptyState = ({ schemaName, schemaTitle }: { schemaName: string, schemaTitle: string }) => {
+    const href = `/dashboard/content/${schemaName}`;
+    
     return (
-        <Card className="md:col-span-2 lg:col-span-3">
+        <Card className="md:col-span-2 lg:col-span-3 xl:col-span-4">
             <CardContent className="p-10 text-center">
-                <h3 className="text-lg font-semibold">No {plural} Found</h3>
+                <h3 className="text-lg font-semibold">No Content in {schemaTitle}</h3>
                 <p className="text-muted-foreground mb-4">
-                    Click the button below to create your first {singular}.
+                    Click the button below to create your first item.
                 </p>
                 <Link href={href} passHref>
                     <Button>
                         <PlusCircle className="mr-2 h-4 w-4" />
-                        {ctaText}
+                        New {schemaTitle}
                     </Button>
                 </Link>
             </CardContent>
@@ -74,120 +51,186 @@ const EmptyState = ({ type }: { type: string }) => {
     );
 }
 
+const NoSchemasWelcome = () => (
+    <Card className="w-full max-w-2xl mx-auto">
+        <CardHeader className="text-center">
+            <CardTitle className="text-3xl font-bold font-headline">Welcome to DreamNeuron!</CardTitle>
+            <CardDescription>
+                It looks like you don't have any content types (Schemas) set up yet. Go to the Schema Manager to create your first one.
+            </CardDescription>
+        </CardHeader>
+        <CardContent className="flex justify-center p-8">
+            <Link href="/dashboard/schemas/edit" passHref>
+                 <Button>
+                    <FilePlus className="mr-2 h-4 w-4" />
+                    Create a Schema
+                </Button>
+            </Link>
+        </CardContent>
+    </Card>
+)
+
 export default function DashboardPage() {
-  const [posts, setPosts] = useState<ContentData[]>([]);
-  const [products, setProducts] = useState<ContentData[]>([]);
+  const [allContent, setAllContent] = useState<AllContent>({});
+  const [schemas, setSchemas] = useState<ContentSchema[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const { setTitle } = usePageTitle();
 
   useEffect(() => {
-    async function fetchAllContent() {
-      setIsLoading(true);
-      const [fetchedPosts, fetchedProducts] = await Promise.all([
-        getPosts('post'),
-        getPosts('product')
-      ]);
-      setPosts(fetchedPosts as ContentData[]);
-      setProducts(fetchedProducts as ContentData[]);
-      setIsLoading(false);
+    setTitle('Dashboard');
+  }, [setTitle]);
+  
+  useEffect(() => {
+    const fetchAllData = async () => {
+        if (!user) return;
+        setIsLoading(true);
+        
+        try {
+            const userSchemas = await getAllSchemas();
+            setSchemas(userSchemas);
+            
+            if (userSchemas.length > 0) {
+                const contentPromises = userSchemas.map(s => getPosts(s.name));
+                const allFetchedContent = await Promise.all(contentPromises);
+                
+                const contentMap: AllContent = {};
+                userSchemas.forEach((schema, index) => {
+                    contentMap[schema.name] = allFetchedContent[index] as unknown as ContentData[];
+                });
+                
+                setAllContent(contentMap);
+            }
+        } catch (e) {
+            console.error("Failed to fetch dashboard data", e);
+            toast({
+                title: 'Error Loading Dashboard',
+                description: 'Could not load your content. Please try again later.',
+                variant: 'destructive',
+            });
+        } finally {
+            setIsLoading(false);
+        }
     }
-    fetchAllContent();
-  }, []);
+    
+    if (user) {
+        fetchAllData();
+    }
+  }, [user, toast]);
 
-  const handleEdit = (type: string, slug: string) => {
-    router.push(`/dashboard/content/${type}?slug=${slug}`);
+  const handleEdit = (schemaName: string, slug: string) => {
+    router.push(`/dashboard/content/${schemaName}?slug=${slug}`);
   };
 
-  const handleDelete = async (type: string, slugToDelete: string) => {
-    const typeName = type.charAt(0).toUpperCase() + type.slice(1);
-    if (window.confirm(`Are you sure you want to delete this ${typeName}? This action cannot be undone.`)) {
-        const result = await deletePost(type, slugToDelete);
+  const handleDelete = async (schemaName: string, slugToDelete: string) => {
+    const schema = schemas.find(s => s.name === schemaName);
+    const schemaTitle = schema?.title || 'item';
+    
+    if (window.confirm(`Are you sure you want to delete this ${schemaTitle}? This action cannot be undone.`)) {
+        const result = await deletePost(schemaName, slugToDelete);
         if (result.success) {
-            if (type === 'post') {
-                setPosts(posts.filter(p => p.slug !== slugToDelete));
-            } else {
-                setProducts(products.filter(p => p.slug !== slugToDelete));
-            }
+            setAllContent(prev => ({
+                ...prev,
+                [schemaName]: prev[schemaName].filter(p => p.slug !== slugToDelete)
+            }));
             toast({
-                title: `${typeName} Deleted`,
-                description: `The ${typeName.toLowerCase()} has been permanently deleted.`,
+                title: `${schemaTitle} Deleted`,
+                description: `The content has been permanently deleted.`,
             });
         } else {
             toast({
                 title: 'Error',
-                description: `Could not delete the ${typeName.toLowerCase()}.`,
+                description: result.error || `Could not delete the content.`,
                 variant: 'destructive',
             });
         }
     }
   };
 
+  const getIconForSchema = (schemaName: string) => {
+      if (schemaName.includes('post')) return <BookOpen className="mr-2 h-4 w-4" />;
+      if (schemaName.includes('product')) return <ShoppingBag className="mr-2 h-4 w-4" />;
+      return <FilePlus className="mr-2 h-4 w-4" />;
+  }
+  
+  const noSchemas = !isLoading && schemas.length === 0;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       <div className="flex justify-between items-center">
         <div>
             <p className="text-muted-foreground">
-              Create and manage all your content from one place.
+              {noSchemas 
+                ? "Let's get you set up."
+                : "Create and manage all your content from one place."}
             </p>
         </div>
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <Button>
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Create New
-                    <ChevronDown className="ml-2 h-4 w-4" />
-                </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                    <Link href="/dashboard/content/post">
-                        <Newspaper className="mr-2 h-4 w-4" />
-                        New Blog Post
-                    </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                    <Link href="/dashboard/content/product">
-                        <ShoppingBag className="mr-2 h-4 w-4" />
-                        New Product
-                    </Link>
-                </DropdownMenuItem>
-            </DropdownMenuContent>
-        </DropdownMenu>
+        <TooltipProvider>
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <div tabIndex={0}> {/* Wrapper for Tooltip with disabled button */}
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button disabled={noSchemas}>
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Create New
+                                    <ChevronDown className="ml-2 h-4 w-4" />
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                                <DropdownMenuLabel>Create a new item in...</DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                {schemas.map(s => (
+                                    <DropdownMenuItem key={s.name} asChild>
+                                        <Link href={`/dashboard/content/${s.name}`}>
+                                            {getIconForSchema(s.name)}
+                                            {s.title}
+                                        </Link>
+                                    </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    </div>
+                </TooltipTrigger>
+                {noSchemas && (
+                    <TooltipContent>
+                        <p>Create a schema first to start adding content.</p>
+                    </TooltipContent>
+                )}
+            </Tooltip>
+        </TooltipProvider>
       </div>
       
-      <Tabs defaultValue="posts" className="w-full">
-          <TabsList>
-              <TabsTrigger value="posts">Blog Posts ({posts.length})</TabsTrigger>
-              <TabsTrigger value="products">Products ({products.length})</TabsTrigger>
-          </TabsList>
-          <TabsContent value="posts">
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mt-4">
-                  {isLoading ? (
-                      <p>Loading posts...</p>
-                  ) : posts.length > 0 ? (
-                      posts.map((item) => (
-                          <ContentCard key={item.slug} item={item} type="post" onEdit={() => handleEdit('post', item.slug)} onDelete={() => handleDelete('post', item.slug)} />
-                      ))
-                  ) : (
-                      <EmptyState type="posts" />
-                  )}
-              </div>
-          </TabsContent>
-          <TabsContent value="products">
-              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mt-4">
-                  {isLoading ? (
-                      <p>Loading products...</p>
-                  ) : products.length > 0 ? (
-                      products.map((item) => (
-                          <ContentCard key={item.slug} item={item} type="product" onEdit={() => handleEdit('product', item.slug)} onDelete={() => handleDelete('product', item.slug)} />
-                      ))
-                  ) : (
-                      <EmptyState type="products" />
-                  )}
-              </div>
-          </TabsContent>
-      </Tabs>
+       {isLoading ? (
+          <p>Loading your dashboard...</p>
+      ) : noSchemas ? (
+          <NoSchemasWelcome />
+      ) : (
+          <Tabs defaultValue={schemas.length > 0 ? schemas[0].name : ''} className="w-full">
+              <TabsList>
+                  {schemas.map(schema => (
+                       <TabsTrigger key={schema.name} value={schema.name}>
+                           {schema.title} ({allContent[schema.name]?.length || 0})
+                       </TabsTrigger>
+                  ))}
+              </TabsList>
+              {schemas.map(schema => (
+                  <TabsContent key={schema.name} value={schema.name}>
+                      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:col-cols-4 mt-4">
+                          {allContent[schema.name] && allContent[schema.name].length > 0 ? (
+                              allContent[schema.name].map((item) => (
+                                  <ContentCard key={item.slug} item={item} type={schema.name} onEdit={handleEdit} onDelete={handleDelete} />
+                              ))
+                          ) : (
+                              <EmptyState schemaName={schema.name} schemaTitle={schema.title}/>
+                          )}
+                      </div>
+                  </TabsContent>
+              ))}
+          </Tabs>
+      )}
     </div>
   );
 }

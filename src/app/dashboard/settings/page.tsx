@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import { saveSettings, getSettings } from '@/actions/content';
 import { Github, Loader2, Trash2 } from 'lucide-react';
 import Image from 'next/image';
+import { usePageTitle } from '@/context/page-title-provider';
 
 type GithubSettings = {
     githubUser: string;
@@ -20,6 +21,7 @@ type GithubSettings = {
 
 export default function SettingsPage() {
     const { toast } = useToast();
+    const { setTitle } = usePageTitle();
     const [settings, setSettings] = useState<GithubSettings>({
         githubUser: '',
         githubRepo: '',
@@ -32,6 +34,10 @@ export default function SettingsPage() {
     const [repoList, setRepoList] = useState<string[]>([]);
     const [branchList, setBranchList] = useState<string[]>([]);
     const [isFetchingBranches, setIsFetchingBranches] = useState(false);
+
+    useEffect(() => {
+        setTitle('Settings');
+    }, [setTitle]);
 
     // Fungsi untuk mengambil daftar repositori
     const fetchRepos = async () => {
@@ -138,7 +144,7 @@ export default function SettingsPage() {
         }
 
         fetchBranches();
-    }, [settings.githubUser, settings.githubRepo, repoList]); // Bergantung pada repo yang dipilih
+    }, [settings.githubUser, settings.githubRepo, repoList, toast]); // Bergantung pada repo yang dipilih
 
     const handleRepoChange = (value: string) => {
         const [user, repo] = value.split('/');

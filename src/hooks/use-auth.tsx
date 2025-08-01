@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, createContext, useContext, ReactNode, useCallback } from 'react';
+import { useState, useEffect, createContext, useContext, ReactNode, useCallback, useRef } from 'react';
 import { auth, db } from '@/lib/firebase';
 import {
   onAuthStateChanged,
@@ -10,9 +10,9 @@ import {
   signOut as firebaseSignOut,
   User,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
-import { createSessionCookie, signOutUser } from '@/actions/content';
+import { createSessionCookie, signOutUser, initializeUser } from '@/actions/user';
 
 interface CustomUser extends User {
     role?: string;
@@ -28,41 +28,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Function to create or update a user profile in Firestore
-const createOrUpdateUserProfile = async (user: User) => {
-    if (!user) return;
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-
-    try {
-        const userData: {
-            email: string | null;
-            displayName: string | null;
-            photoURL: string | null;
-            lastLogin: any;
-            role?: string;
-            createdAt?: any;
-        } = {
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            lastLogin: serverTimestamp(),
-        };
-
-        if (!userSnap.exists()) {
-            userData.role = 'freeUser';
-            userData.createdAt = serverTimestamp();
-            console.log(`Creating new freeUser profile for ${user.uid}`);
-        }
-        
-        await setDoc(userRef, userData, { merge: true });
-        console.log(`Upserted profile for ${user.uid}`);
-        
-    } catch (error) {
-         console.error("Error creating/updating user profile:", error);
-    }
-};
-
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CustomUser | null>(null);
@@ -72,84 +37,96 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     const currentUser = auth.currentUser;
     if (currentUser) {
-      // Force refresh the token to ensure the latest claims are available
-      await currentUser.getIdToken(true);
+      // Force refresh the token to get latest claims if needed, but Firestore is our source of truth for role.
+      await currentUser.getIdToken(true); 
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
       if (userSnap.exists()) {
         const updatedUser = { ...currentUser, role: userSnap.data()?.role };
         setUser(updatedUser);
-        console.log('User data refreshed on client.', updatedUser);
+        console.log('User data manually refreshed on client.', updatedUser);
       }
     }
   }, []);
+
+  const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (authUser) => {
+      // Clean up previous snapshot listener if it exists
+      if (unsubRef.current) {
+        unsubRef.current();
+        unsubRef.current = null;
+      }
+
       if (authUser) {
         const userRef = doc(db, 'users', authUser.uid);
+        
+        // Set up a real-time listener for the user's document for live role updates
+        const unsubFromDoc = onSnapshot(userRef, (docSnap) => {
+            if (docSnap.exists()) {
+                console.log("User data updated via snapshot listener.");
+                setUser({ ...authUser, role: docSnap.data()?.role });
+            }
+        });
+        unsubRef.current = unsubFromDoc;
+        
+        // Initial load or first-time login
         const userSnap = await getDoc(userRef);
-
+        if (!userSnap.exists()) {
+            // This is a new user, initialize them in Firestore
+            await initializeUser({
+                uid: authUser.uid,
+                email: authUser.email,
+                displayName: authUser.displayName,
+                photoURL: authUser.photoURL,
+            });
+            // For new users, immediately set the user state with the default role
+            setUser({ ...authUser, role: 'freeUser' });
+        } else {
+            // Existing user, set initial data
+            setUser({ ...authUser, role: userSnap.data()?.role });
+        }
+        
+        // Create server-side session cookie for server actions and API routes
         const idToken = await authUser.getIdToken();
         await createSessionCookie(idToken);
         
-        if (userSnap.exists()) {
-            setUser({ ...authUser, role: userSnap.data()?.role });
-        } else {
-            // This case might happen on first login, profile creation is handled in login function
-            // but we can create it here as a fallback.
-            await createOrUpdateUserProfile(authUser);
-            const updatedSnap = await getDoc(userRef);
-            if (updatedSnap.exists()) {
-               setUser({ ...authUser, role: updatedSnap.data()?.role });
-            } else {
-               setUser(authUser);
-            }
-        }
+        setLoading(false);
+        
       } else {
         setUser(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      // Also clean up the snapshot listener when the component unmounts
+      if (unsubRef.current) {
+        unsubRef.current();
+        unsubRef.current = null;
+      }
+    };
   }, []);
 
-  const loginWithGoogle = async () => {
-    setLoading(true);
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      
-      if (result.user) {
-        await createOrUpdateUserProfile(result.user);
-        const idToken = await result.user.getIdToken();
-        await createSessionCookie(idToken);
-        router.push('/dashboard');
+  const loginWithProvider = async (provider: GoogleAuthProvider | GithubAuthProvider) => {
+      setLoading(true);
+      try {
+          await signInWithPopup(auth, provider);
+          // The onAuthStateChanged listener will handle the rest of the logic
+      } catch (error) {
+          console.error("Error during sign-in:", error);
+          setLoading(false);
       }
-    } catch (error) {
-      console.error("Error during Google sign-in:", error);
-    } finally {
-      setLoading(false);
-    }
+  };
+
+  const loginWithGoogle = async () => {
+      await loginWithProvider(new GoogleAuthProvider());
   };
 
   const loginWithGitHub = async () => {
-    setLoading(true);
-    try {
-        const provider = new GithubAuthProvider();
-        const result = await signInWithPopup(auth, provider);
-
-        if (result.user) {
-            await createOrUpdateUserProfile(result.user);
-            const idToken = await result.user.getIdToken();
-            await createSessionCookie(idToken);
-            router.push('/dashboard');
-        }
-    } catch (error) {
-        console.error("Error during GitHub sign-in:", error);
-    } finally {
-        setLoading(false);
-    }
+      await loginWithProvider(new GithubAuthProvider());
   };
 
   const logout = async () => {

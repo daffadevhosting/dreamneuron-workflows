@@ -34,7 +34,7 @@ const tokenCache = new Map<string, { token: string; expiresAt: number }>();
  * This token is short-lived (10 minutes) and is used to request an installation access token.
  */
 function createAppAuthToken(): string {
-    const privateKeyBase64 = process.env.GITHUB_PRIVATE_KEY_BASE64;
+    const privateKeyBase64 = process.env.GITHUB_PRIVATE_KEY;
     const appId = process.env.GITHUB_APP_ID;
 
     if (!privateKeyBase64 || !appId) {
